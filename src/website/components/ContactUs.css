@@ -1,0 +1,237 @@
+.contact-us {
+  padding: 4rem 0;
+  background: #f8fafc;
+  overflow-x: hidden;
+}
+
+/* Contact Us Header with Background - FULL WIDTH */
+.contact-us .section-header {
+  background: #fff7ed;
+  padding: 2.5rem 0;
+  margin-bottom: 3rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-top: 1px solid #fed7aa;
+  border-bottom: 1px solid #fed7aa;
+  text-align: center;
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+}
+
+/* Contact Us Header - Uses global typography */
+.contact-us .section-header h2 {
+  /* Inherits color, font-size, font-weight from global .section-header h2 */
+  margin: 0 auto 0.5rem auto;
+  padding: 0 2rem;
+}
+
+.contact-us .section-subtitle {
+  /* Inherits color, font-size from global .section-subtitle */
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+.contact-content {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 4rem;
+  align-items: start;
+}
+
+.contact-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: #fffbf7;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.info-icon {
+  color: #ea580c;
+  background: #fef5f1;
+  padding: 0.75rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+  margin-top: 1.5rem;
+}
+
+.info-content h3 {
+  color: #1a202c;
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.info-content p {
+  color: #4a5568;
+  margin: 0.25rem 0;
+  font-size: 0.95rem;
+}
+
+.contact-form-container {
+  background: #fffbf7;
+  padding: 2.5rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  color: #1a202c;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s ease;
+  font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.form-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.form-message.success {
+  background: #f0fff4;
+  color: #22543d;
+  border: 1px solid #9ae6b4;
+}
+
+.form-message.error {
+  background: #fed7d7;
+  color: #742a2a;
+  border: 1px solid #feb2b2;
+}
+
+.submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #ea580c;
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s ease;
+  align-self: flex-start;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+  .contact-us {
+    padding: 3rem 0;
+  }
+  
+  .container {
+    padding: 0 1rem;
+  }
+  
+  .section-header {
+    margin-bottom: 2rem;
+  }
+  
+  .section-header h2 {
+    font-size: 2rem;
+  }
+  
+  .contact-content {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  
+  .contact-form-container {
+    padding: 1.5rem;
+  }
+  
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .contact-form {
+    gap: 1rem;
+  }
+  
+  .submit-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
