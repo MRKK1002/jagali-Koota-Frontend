@@ -171,7 +171,7 @@ const BranchSelection = () => {
           <div className="branch-logo-wrap">
             <img src={hotelViratLogo} alt="Hotel Virat" className="branch-logo" />
           </div>
-          <h1 className="branch-brand">Hotel Virat</h1>
+          <h1 className="branch-brand">Jagali Koota</h1>
           <p className="branch-tagline">Billing System</p>
 
           <button className="branch-logout-btn" onClick={handleLogout}>
@@ -238,5 +238,4 @@ const BranchSelection = () => {
     </div>
   )
 }
-
 export default BranchSelection

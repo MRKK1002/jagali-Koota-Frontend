@@ -20,6 +20,7 @@ import {
   Calendar,
   MessageSquare,
   QrCode,
+  Image as ImageIcon,
 } from "lucide-react"
 
 const Sidebar = ({ collapsed, setCollapsed }) => {
@@ -73,9 +74,10 @@ useEffect(() => {
     // Membership Section
     { path: "/admin/members", name: "Members", icon: <Users size={20} /> },
     { path: "/admin/events", name: "Events", icon: <Calendar size={20} /> },
-    { path: "/admin/member-orders", name: "Member Orders", icon: <ShoppingCart size={20} /> },
+    { path: "/admin/gallery", name: "Gallery", icon: <ImageIcon size={20} /> },
+    // { path: "/admin/member-orders", name: "Member Orders", icon: <ShoppingCart size={20} /> },
 
-    { path: "/admin/users", name: "Users", icon: <Users size={20} /> },
+    // { path: "/admin/users", name: "Users", icon: <Users size={20} /> },
      { path: "/admin/staff-users", name: "Staff Users", icon: <Users size={20} /> },
      { path: "/admin/counter-users", name: "Counter Users", icon: <Users size={20} /> },
      { path: "/admin/servers", name: "Servers / Waiters", icon: <Users size={20} /> },

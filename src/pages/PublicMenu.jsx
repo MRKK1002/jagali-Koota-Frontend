@@ -20,10 +20,70 @@ import {
 } from "lucide-react"
 import hotelViratLogo from "../assets/logo4.jpeg"
 
+// ── Subcategory ordering ─────────────────────────────────────────────────────
+// Menu items carry a subcategory from the admin panel. This lays the filter
+// chips out in natural menu order (starters → mains → dessert) rather than
+// whatever order the API returns. Kept in sync with the Member App's
+// MenuScreen.js so both surfaces read the same way.
+// Anything not listed still appears, appended alphabetically.
+const SUBCATEGORY_ORDER = [
+  "Soup",
+  "Salad",
+  "Appetizers",
+  "International Small Plates",
+  "Bao & Dim Sum",
+  "Sushi",
+  "Tandoor",
+  "Pan-Asian",
+  "North Indian",
+  "South Indian",
+  "Nati Style",
+  "Pasta",
+  "International Big Plates",
+  "Staples",
+  "Dessert",
+]
+
+const OTHERS_LABEL = "Others"
+
+const sortSubcategories = (names) => {
+  const known = []
+  const unknown = []
+
+  names.forEach((name) => {
+    if (name === OTHERS_LABEL) return // always pinned last
+    if (SUBCATEGORY_ORDER.includes(name)) known.push(name)
+    else unknown.push(name)
+  })
+
+  known.sort((a, b) => SUBCATEGORY_ORDER.indexOf(a) - SUBCATEGORY_ORDER.indexOf(b))
+  unknown.sort((a, b) => a.localeCompare(b))
+
+  const result = [...known, ...unknown]
+  if (names.includes(OTHERS_LABEL)) result.push(OTHERS_LABEL)
+  return result
+}
+
+// subcategoryId comes back populated as { _id, name }; fall back to a plain
+// string for older/unpopulated response shapes.
+const getSubcategoryName = (product) => {
+  const raw =
+    product?.subcategoryId && typeof product.subcategoryId === "object"
+      ? product.subcategoryId.name
+      : product?.subcategoryName || product?.subcategory
+
+  return raw && typeof raw === "string" && raw.trim() ? raw.trim() : null
+}
+
 const PublicMenu = () => {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
   const [selectedCategory, setSelectedCategory] = useState("")
+  // Subcategory filter (Soup, Appetizers, Tandoor…) — same idea as the Member
+  // App's chip row. "All" means no subcategory filter.
+  const [selectedSubcategory, setSelectedSubcategory] = useState("All")
+  // Map of image key -> true for images that failed to load
+  const [brokenImages, setBrokenImages] = useState({})
   const [searchQuery, setSearchQuery] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -208,9 +268,22 @@ const PublicMenu = () => {
   // Cart functions
   const addToCart = (product) => {
     // Check if table is available before adding to cart
+    // Allow if table is reserved but current session is the owner (same customer adding more items)
     if (tableStatus === "reserved") {
-      alert("This table is currently reserved. Please contact staff for assistance.")
-      return
+      const sessionKey = `session_${branchId}_${tableNumber}`
+      const existingSession = localStorage.getItem(sessionKey)
+      let isOwner = false
+      if (existingSession) {
+        try {
+          const sessionData = JSON.parse(existingSession)
+          const now = Date.now()
+          isOwner = sessionData.sessionId === sessionId && (now - sessionData.lastActivity < 4 * 60 * 60 * 1000)
+        } catch (e) { /* ignore */ }
+      }
+      if (!isOwner) {
+        alert("This table is currently reserved. Please contact staff for assistance.")
+        return
+      }
     }
 
     setCart((prevCart) => {
@@ -744,9 +817,22 @@ const PublicMenu = () => {
 
   const handlePlaceOrder = async () => {
     // Check table status before placing order
+    // Allow if table is reserved but current session is the owner (same customer ordering more)
     if (tableStatus === "reserved") {
-      alert("This table is currently reserved. Please contact staff for assistance.")
-      return
+      const sessionKey = `session_${branchId}_${tableNumber}`
+      const existingSession = localStorage.getItem(sessionKey)
+      let isOwner = false
+      if (existingSession) {
+        try {
+          const sessionData = JSON.parse(existingSession)
+          const now = Date.now()
+          isOwner = sessionData.sessionId === sessionId && (now - sessionData.lastActivity < 4 * 60 * 60 * 1000)
+        } catch (e) { /* ignore */ }
+      }
+      if (!isOwner) {
+        alert("This table is currently reserved. Please contact staff for assistance.")
+        return
+      }
     }
 
     if (!customerDetails.name.trim() || !customerDetails.mobile.trim()) {
@@ -769,49 +855,81 @@ const PublicMenu = () => {
     try {
       const totalAmount = getCartTotal()
 
+      // Generate a proper sequential KOT number
+      const now = new Date()
+      const dateKey = `${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getFullYear()).slice(-2)}`
+      const kotCounterKey = `kot-counter-${dateKey}`
+      let kotCounter = parseInt(localStorage.getItem(kotCounterKey) || '0')
+      kotCounter++
+      localStorage.setItem(kotCounterKey, kotCounter.toString())
+      const kotNumber = `KOT-${String(kotCounter).padStart(3, '0')}`
+
       const orderData = {
-        // orderId is auto-generated by backend
+        // Create as a KOT (counter-order with pending payment)
+        userId: null, // Guest order — no counter user
         customerName: customerDetails.name.trim(),
-        customerMobile: customerDetails.mobile.trim(),
+        phoneNumber: customerDetails.mobile.trim(),
         branchId: branchId,
         branchName: branchName,
         categoryId: tableCategoryId || null,
-        categoryName: tableCategoryName || "",
+        categoryName: tableCategoryName || "Restaurant",
         tableId: tableId || null,
         tableNumber: tableNumber,
-        peopleCount: Number.parseInt(customerDetails.peopleCount),
-        sessionId: sessionId, // Add session ID to link orders
+        kotNumber: kotNumber,
+        kotTime: new Date().toISOString(),
+        serverName: "QR Order", // Identify as QR-based order
         items: cart.map((item) => ({
           menuItemId: item._id,
           name: item.name,
           price: item.price,
           quantity: item.quantity,
-          image: item.image || "",
-          description: item.description || "",
-          categoryId: item.categoryId || tableCategoryId || null,
         })),
+        subtotal: totalAmount,
+        gstAmount: 0,
+        tax: 0,
+        serviceCharge: 0,
         totalAmount: totalAmount,
+        grandTotal: totalAmount,
         paymentMethod: "cash",
+        paymentStatus: "pending", // KOT = pending payment
+        orderStatus: "pending",
         notes: `Guest order from Table ${tableNumber}${tableCategoryName ? ` - ${tableCategoryName}` : ''} `,
       }
 
-      console.log("Placing guest order:", orderData)
+      console.log("Placing guest order as KOT:", orderData)
 
-      // Use new public restaurant order endpoint
-      const response = await api.post("/public-order/create", orderData)
+      // Create as counter-order (KOT) — shows in counter KOT list and kitchen display
+      const response = await api.post("/counter-order/orders-no-stock", orderData)
 
-      if (response.success) {
+      if (response.order || response.success) {
+        const orderResult = response.order || response.data || {}
         const completedOrder = {
           ...orderData,
-          _id: response.data._id || Date.now().toString(),
-          orderId: response.data.orderId,
-          orderTime: response.data.orderTime || new Date().toISOString(),
-          createdAt: response.data.createdAt || new Date().toISOString()
+          _id: orderResult.id || orderResult._id || Date.now().toString(),
+          orderId: orderResult.id || orderResult._id || Date.now().toString(),
+          orderTime: orderResult.createdAt || new Date().toISOString(),
+          createdAt: orderResult.createdAt || new Date().toISOString()
         }
         
         console.log("✅ Order placed successfully!")
         console.log("📋 Order ID:", completedOrder.orderId)
         console.log("📋 Session ID:", sessionId)
+
+        // Reserve the table so counter shows it as occupied
+        if (tableId) {
+          try {
+            await api.post(`/table/${tableId}`, { status: "reserved" }).catch(() => {})
+            // Try PUT if POST doesn't work
+            await fetch(`${api.baseURL}/table/${tableId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'reserved' })
+            }).catch(() => {})
+            console.log("🪑 Table reserved:", tableNumber)
+          } catch (_) {
+            console.warn("⚠️ Failed to reserve table, continuing anyway")
+          }
+        }
         console.log("📋 Complete order data:", completedOrder)
         
         // Store order details for invoice generation
@@ -852,12 +970,11 @@ const PublicMenu = () => {
         setShowCheckout(false)
         setShowCart(false)
 
-        // Reset customer details
-        setCustomerDetails({
-          name: "",
-          mobile: "",
-          peopleCount: 1,
-        })
+        // NOTE: customerDetails are deliberately NOT cleared here. They're
+        // captured once on the gate screen before the menu and belong to the
+        // whole table session — the guest is still seated and may order again.
+        // Clearing them would send them back to the details gate after every
+        // order. They're wiped naturally when the 4-hour session expires.
 
         // Don't auto-hide - let user manually close or reorder
       } else {
@@ -951,6 +1068,53 @@ const PublicMenu = () => {
 
 
 
+  // Tracks image URLs that failed to load, so we render a CSS placeholder
+  // instead of retrying. Previously onError swapped src to "/placeholder.svg",
+  // which doesn't exist in public/ — so that 404'd too, fired onError again,
+  // and looped forever, causing the visible flicker.
+  const markImageBroken = (key) => {
+    setBrokenImages((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
+  }
+
+  // Subcategory chips, built from the loaded products with item counts.
+  // Counts respect the category + search filters that are already applied, but
+  // deliberately ignore the subcategory filter itself — otherwise selecting a
+  // chip would zero out every other chip's count.
+  const subcategoryChips = (() => {
+    const base = products.filter((product) => {
+      if (!product) return false
+
+      const nameStr = String(product?.name || "")
+      if (/^\d+$/.test(nameStr.trim())) return false // skip numeric-only junk names
+
+      const matchesCategory =
+        !selectedCategory || selectedCategory === "" || getCategoryId(product) === selectedCategory
+
+      const term = searchQuery ? String(searchQuery).toLowerCase() : ""
+      const matchesSearch =
+        !searchQuery ||
+        nameStr.toLowerCase().includes(term) ||
+        String(product?.description || "").toLowerCase().includes(term)
+
+      return matchesCategory && matchesSearch
+    })
+
+    const counts = {}
+    base.forEach((product) => {
+      const key = getSubcategoryName(product) || OTHERS_LABEL
+      counts[key] = (counts[key] || 0) + 1
+    })
+
+    // Nothing worth filtering by if every item landed in "Others"
+    const hasNamed = Object.keys(counts).some((k) => k !== OTHERS_LABEL)
+    if (!hasNamed) return []
+
+    return [
+      { name: "All", count: base.length },
+      ...sortSubcategories(Object.keys(counts)).map((name) => ({ name, count: counts[name] })),
+    ]
+  })()
+
   // Filter products
   const filteredProducts = products.filter((product) => {
     try {
@@ -974,7 +1138,12 @@ const PublicMenu = () => {
       
       // Now check category and search filters
       const matchesCategory = !selectedCategory || selectedCategory === "" || getCategoryId(product) === selectedCategory
-      
+
+      // Subcategory chip filter — items with no subcategory group under "Others"
+      const matchesSubcategory =
+        selectedSubcategory === "All" ||
+        (getSubcategoryName(product) || OTHERS_LABEL) === selectedSubcategory
+
       const productDescription = product?.description || ''
       const searchTerm = searchQuery ? String(searchQuery).toLowerCase() : ''
       
@@ -986,7 +1155,7 @@ const PublicMenu = () => {
         productNameSafe.includes(searchTerm) ||
         productDescriptionSafe.includes(searchTerm)
       
-      return matchesCategory && matchesSearch
+      return matchesCategory && matchesSubcategory && matchesSearch
     } catch (error) {
       console.error('Error filtering product:', error, 'Product:', product)
       return false
@@ -995,6 +1164,47 @@ const PublicMenu = () => {
 
   // Session management state
   const [sessionId, setSessionId] = useState("")
+
+  // Guest details are captured up-front (before the menu) and stored on the
+  // existing session object, which already has a 4-hour validity window. That
+  // way a refresh or re-scan mid-meal doesn't re-prompt.
+  // `null` = not yet resolved from storage, so we don't flash the gate before
+  // we know whether details already exist.
+  const [detailsCaptured, setDetailsCaptured] = useState(null)
+  // Set when the guest taps "Edit" from the checkout modal
+  const [editingDetails, setEditingDetails] = useState(false)
+  const [detailsError, setDetailsError] = useState("")
+
+  // Read previously captured details for this branch+table, if the session is
+  // still valid. Returns null when there's nothing usable.
+  const loadSavedDetails = (branch, table) => {
+    try {
+      const raw = localStorage.getItem(`session_${branch}_${table}`)
+      if (!raw) return null
+      const data = JSON.parse(raw)
+      if (Date.now() - data.lastActivity >= 4 * 60 * 60 * 1000) return null
+      const d = data.customerDetails
+      if (d && d.name && d.mobile) return d
+      return null
+    } catch (e) {
+      return null
+    }
+  }
+
+  // Persist details onto the session object without disturbing sessionId
+  const saveDetailsToSession = (branch, table, details) => {
+    try {
+      const key = `session_${branch}_${table}`
+      const raw = localStorage.getItem(key)
+      const data = raw ? JSON.parse(raw) : {}
+      data.customerDetails = details
+      data.lastActivity = Date.now()
+      localStorage.setItem(key, JSON.stringify(data))
+    } catch (e) {
+      // Non-fatal: details stay in React state for this page view
+      console.warn("Could not persist customer details:", e?.message)
+    }
+  }
 
   // Generate or retrieve session ID
   const getOrCreateSession = (branch, table) => {
@@ -1027,6 +1237,32 @@ const PublicMenu = () => {
     return newSessionId
   }
 
+  // Validation shared by the gate and the final place-order check
+  const validateDetails = (d) => {
+    if (!d.name || !d.name.trim()) return "Please enter your full name"
+    if (!/^\d{10}$/.test((d.mobile || "").trim())) return "Please enter a valid 10-digit mobile number"
+    return ""
+  }
+
+  const handleDetailsSubmit = (e) => {
+    if (e) e.preventDefault()
+    const msg = validateDetails(customerDetails)
+    if (msg) {
+      setDetailsError(msg)
+      return
+    }
+    const cleaned = {
+      name: customerDetails.name.trim(),
+      mobile: customerDetails.mobile.trim(),
+      peopleCount: customerDetails.peopleCount || 1,
+    }
+    setCustomerDetails(cleaned)
+    saveDetailsToSession(branchId, tableNumber, cleaned)
+    setDetailsError("")
+    setEditingDetails(false)
+    setDetailsCaptured(true)
+  }
+
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const branch = urlParams.get("branch")
@@ -1044,6 +1280,20 @@ const PublicMenu = () => {
       setBranchId(branch)
       setBranchName(decodeURIComponent(name || ""))
       setTableNumber(table)
+
+      // Restore details from a still-valid session so we don't re-prompt on
+      // refresh; otherwise show the details gate before the menu.
+      const saved = loadSavedDetails(branch, table)
+      if (saved) {
+        setCustomerDetails({
+          name: saved.name || "",
+          mobile: saved.mobile || "",
+          peopleCount: saved.peopleCount || 1,
+        })
+        setDetailsCaptured(true)
+      } else {
+        setDetailsCaptured(false)
+      }
 
       // Check table status first, then fetch menu data with category filter
       checkTableStatus(branch, table).then((result) => {
@@ -1077,19 +1327,12 @@ const PublicMenu = () => {
     try {
       setLoading(true)
       setError("")
-
-      console.log("🔍 Fetching menu data for branch:", branchId)
-      console.log("📂 Table category ID:", tableCatId)
-
       // Fetch menu items and categories filtered by branchId from the backend
       // Add limit parameter to fetch all items (not paginated)
       const [productsResponse, categoriesResponse] = await Promise.all([
         api.get(`/menu?branchId=${branchId}&limit=1000`), 
         api.get(`/category?branchId=${branchId}`)
       ])
-
-      console.log("📦 Raw products response:", productsResponse)
-      console.log("📂 Raw categories response:", categoriesResponse)
 
       // Handle different API response formats
       let productsData = []
@@ -1120,9 +1363,6 @@ const PublicMenu = () => {
         categoriesData = []
       }
 
-      console.log("📦 Extracted products:", productsData?.length || 0)
-      console.log("📂 Extracted categories:", categoriesData?.length || 0)
-
       // Helper function to extract price from product
       const getProductPrice = (product) => {
         // If product has direct price field, use it
@@ -1151,7 +1391,7 @@ const PublicMenu = () => {
       let branchProducts = productsData
         .map(product => ({
           ...product,
-          name: cleanItemName(product.name), // Clean the name
+          name: cleanItemName(product.name || product.itemName), // Clean the name, fallback to itemName
           price: getProductPrice(product)
         }))
 
@@ -1211,9 +1451,6 @@ const PublicMenu = () => {
       const branchCategories = Array.isArray(categoriesData) 
         ? categoriesData.filter((category) => usedCategoryIds.includes(category._id))
         : []
-
-      console.log("📂 Final categories:", branchCategories.length)
-      console.log("✅ Final products:", branchProducts.length)
 
       setProducts(branchProducts)
       setCategories(branchCategories)
@@ -1322,8 +1559,26 @@ const PublicMenu = () => {
     )
   }
 
-  // NEW: Show table reserved message if table is reserved
-  if (tableStatus === "reserved") {
+  // NEW: Show table reserved message ONLY if table is reserved AND current session doesn't own it
+  // If the same customer (same session) scans again, let them through to add more items
+  const isSessionOwner = (() => {
+    if (!sessionId) return false
+    const sessionKey = `session_${branchId}_${tableNumber}`
+    const existingSession = localStorage.getItem(sessionKey)
+    if (existingSession) {
+      try {
+        const sessionData = JSON.parse(existingSession)
+        const now = Date.now()
+        // Session is valid if within 4 hours
+        return sessionData.sessionId === sessionId && (now - sessionData.lastActivity < 4 * 60 * 60 * 1000)
+      } catch (e) {
+        return false
+      }
+    }
+    return false
+  })()
+
+  if (tableStatus === "reserved" && !isSessionOwner) {
     return (
       <>
         <div className="reserved-screen">
@@ -1383,6 +1638,248 @@ const PublicMenu = () => {
           }
           .contact-info p:last-child {
             margin-bottom: 0;
+          }
+        `}</style>
+      </>
+    )
+  }
+
+  // ── Guest details gate ──────────────────────────────────────────────────────
+  // Shown before the menu on a fresh scan, and again if the guest taps "Edit"
+  // from the checkout modal. Placed AFTER the reserved-table guard above so a
+  // walk-up guest at someone else's table is never asked for details.
+  // `detailsCaptured === null` means we haven't read storage yet — render
+  // nothing rather than flashing the form for a frame.
+  if (detailsCaptured === null) {
+    return null
+  }
+
+  if (!detailsCaptured || editingDetails) {
+    return (
+      <>
+        <div className="details-gate">
+          <div className="details-card">
+            <img src={hotelViratLogo} alt="Jagali Koota" className="details-logo" />
+            <h2 className="details-title">Welcome to {branchName || "Jagali Koota"}</h2>
+            <div className="details-table-chip">
+              <QrCode size={16} />
+              <span>Table {tableNumber}</span>
+            </div>
+            <p className="details-sub">
+              Please share a few details before you view the menu.
+            </p>
+
+            <form onSubmit={handleDetailsSubmit}>
+              <div className="details-field">
+                <label>
+                  <User size={16} /> Full Name <span className="req">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={customerDetails.name}
+                  onChange={(e) => {
+                    setCustomerDetails({ ...customerDetails, name: e.target.value })
+                    if (detailsError) setDetailsError("")
+                  }}
+                  placeholder="Enter your full name"
+                  autoComplete="name"
+                  autoFocus
+                />
+              </div>
+
+              <div className="details-field">
+                <label>
+                  <Phone size={16} /> Mobile Number <span className="req">*</span>
+                </label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={customerDetails.mobile}
+                  onChange={(e) => {
+                    // digits only, capped at 10 — mirrors the old checkout field
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 10)
+                    setCustomerDetails({ ...customerDetails, mobile: digits })
+                    if (detailsError) setDetailsError("")
+                  }}
+                  placeholder="Enter 10-digit mobile number"
+                  maxLength="10"
+                  autoComplete="tel"
+                />
+              </div>
+
+              <div className="details-field">
+                <label>
+                  <Users size={16} /> Number of People
+                </label>
+                <select
+                  value={customerDetails.peopleCount}
+                  onChange={(e) =>
+                    setCustomerDetails({ ...customerDetails, peopleCount: Number(e.target.value) })
+                  }
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                    <option key={num} value={num}>
+                      {num} {num === 1 ? "Person" : "People"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {detailsError && (
+                <div className="details-error">
+                  <AlertCircle size={15} />
+                  <span>{detailsError}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="details-submit"
+                disabled={!customerDetails.name.trim() || customerDetails.mobile.length !== 10}
+              >
+                View Menu
+              </button>
+
+              {editingDetails && (
+                <button
+                  type="button"
+                  className="details-cancel"
+                  onClick={() => {
+                    setEditingDetails(false)
+                    setDetailsError("")
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </form>
+          </div>
+        </div>
+
+        <style jsx>{`
+          .details-gate {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f9fafb;
+            padding: 20px;
+          }
+          .details-card {
+            width: 100%;
+            max-width: 420px;
+            background: #fff;
+            border-radius: 16px;
+            padding: 28px 24px 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            text-align: center;
+          }
+          .details-logo {
+            width: 68px;
+            height: 68px;
+            object-fit: contain;
+            border-radius: 12px;
+            margin-bottom: 14px;
+          }
+          .details-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 10px;
+          }
+          .details-table-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #fff5f4;
+            color: #6B2219;
+            border: 1px solid #f0dcd7;
+            border-radius: 20px;
+            padding: 5px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+          }
+          .details-sub {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 22px;
+            line-height: 1.5;
+          }
+          .details-field {
+            text-align: left;
+            margin-bottom: 16px;
+          }
+          .details-field label {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #4b5563;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 7px;
+          }
+          .details-field .req {
+            color: #dc2626;
+          }
+          .details-field input,
+          .details-field select {
+            width: 100%;
+            padding: 13px 14px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 15px;
+            color: #1f2937;
+            background: #fff;
+            outline: none;
+            transition: border-color 0.15s ease;
+          }
+          .details-field input:focus,
+          .details-field select:focus {
+            border-color: #6B2219;
+          }
+          .details-error {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+            font-size: 13px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 14px;
+            text-align: left;
+          }
+          .details-submit {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            background: #6B2219;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 4px;
+            transition: opacity 0.15s ease;
+          }
+          .details-submit:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+          }
+          .details-cancel {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            color: #6b7280;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
           }
         `}</style>
       </>
@@ -1453,11 +1950,19 @@ const PublicMenu = () => {
           </div>
         </header>
 
-        {/* Floating Cart Button */}
-        {cart.length > 0 && tableStatus === "available" && (
+        {/* Floating Cart Button - show for available OR for session owner on reserved table */}
+        {cart.length > 0 && (tableStatus === "available" || (tableStatus === "reserved" && isSessionOwner)) && (
           <button className="floating-cart" onClick={() => setShowCart(true)}>
             <ShoppingCart size={24} />
             <span className="cart-count">{getCartItemCount()}</span>
+          </button>
+        )}
+
+        {/* Floating My Orders Button - show when customer has a session */}
+        {sessionId && (
+          <button className="floating-my-orders" onClick={() => setShowMyOrders(true)}>
+            <History size={20} />
+            <span>My Orders</span>
           </button>
         )}
 
@@ -1482,13 +1987,28 @@ const PublicMenu = () => {
               </div>
             </div>
 
+            {/* Subcategory chips — mirrors the Member App's menu filter */}
+            {subcategoryChips.length > 1 && (
+              <div className="subcat-row">
+                {subcategoryChips.map((sub) => (
+                  <button
+                    key={sub.name}
+                    type="button"
+                    className={`subcat-chip ${selectedSubcategory === sub.name ? "active" : ""}`}
+                    onClick={() => setSelectedSubcategory(sub.name)}
+                  >
+                    <span className="subcat-chip-label">{sub.name}</span>
+                    <span className="subcat-chip-count">{sub.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Results Info */}
             <div className="results-info">
               <p>
                 {filteredProducts.length} item{filteredProducts.length !== 1 ? "s" : ""} found
-                {selectedCategory &&
-                  categories.find((cat) => cat._id === selectedCategory) &&
-                  ` in ${categories.find((cat) => cat._id === selectedCategory).name}`}
+                {selectedSubcategory !== "All" && ` in ${selectedSubcategory}`}
                 {searchQuery && ` for "${searchQuery}"`}
               </p>
             </div>
@@ -1499,13 +2019,19 @@ const PublicMenu = () => {
                 {filteredProducts.map((product) => (
                   <div key={product._id} className="menu-card">
                     <div className="card-image">
-                      <img
-                        src={(product.image) || "/placeholder.svg"}
-                        alt={product?.name || 'Menu item'}
-                        onError={(e) => {
-                          e.target.src = "/placeholder.svg?height=200&width=300"
-                        }}
-                      />
+                      {/* Render a CSS placeholder when there's no image, or when
+                          the image failed once. No src swapping — that's what
+                          caused the endless 404 -> onError -> 404 flicker. */}
+                      {product.image && !brokenImages[product._id] ? (
+                        <img
+                          src={product.image}
+                          alt={product?.name || 'Menu item'}
+                          loading="lazy"
+                          onError={() => markImageBroken(product._id)}
+                        />
+                      ) : (
+                        <div className="card-image-fallback" aria-hidden="true" />
+                      )}
                     </div>
                     <div className="card-content">
                       <div className="card-header">
@@ -1514,8 +2040,8 @@ const PublicMenu = () => {
                       </div>
                       {product?.description && <p className="product-description">{product.description}</p>}
 
-                      {/* Add to Cart Controls - Only show if table is available */}
-                      {tableStatus === "available" && (
+                      {/* Add to Cart Controls - Show if table is available OR session owner */}
+                      {(tableStatus === "available" || (tableStatus === "reserved" && isSessionOwner)) && (
                         <div className="cart-controls">
                           {getItemQuantityInCart(product._id) === 0 ? (
                             <button className="add-to-cart-btn" onClick={() => addToCart(product)}>
@@ -1536,8 +2062,8 @@ const PublicMenu = () => {
                         </div>
                       )}
 
-                      {/* Show message if table is reserved */}
-                      {tableStatus === "reserved" && (
+                      {/* Show message if table is reserved and NOT the session owner */}
+                      {tableStatus === "reserved" && !isSessionOwner && (
                         <div className="reserved-message">
                           <AlertCircle size={16} />
                           <span>Table Reserved - Contact Staff</span>
@@ -1581,8 +2107,8 @@ const PublicMenu = () => {
           </div>
         </main>
 
-        {/* Cart Modal - Only show if table is available */}
-        {showCart && tableStatus === "available" && (
+        {/* Cart Modal - Show if table is available OR session owner */}
+        {showCart && (tableStatus === "available" || (tableStatus === "reserved" && isSessionOwner)) && (
           <div className="modal-overlay">
             <div className="cart-modal">
               <div className="cart-header">
@@ -1603,11 +2129,17 @@ const PublicMenu = () => {
                     <div className="cart-items">
                       {cart.map((item) => (
                         <div key={item._id} className="cart-item">
-                          <img
-                            src={(item.image) || "/placeholder.svg"}
-                            alt={item.name}
-                            className="cart-item-image"
-                          />
+                          {item.image && !brokenImages[item._id] ? (
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="cart-item-image"
+                              loading="lazy"
+                              onError={() => markImageBroken(item._id)}
+                            />
+                          ) : (
+                            <div className="cart-item-image cart-item-image-fallback" aria-hidden="true" />
+                          )}
                           <div className="cart-item-details">
                             <h4>{item.name}</h4>
                             <p>₹{(item.price || 0).toFixed(2)} each</p>
@@ -1681,8 +2213,8 @@ const PublicMenu = () => {
           </div>
         )}
 
-        {/* Checkout Modal - Only show if table is available */}
-        {showCheckout && tableStatus === "available" && (
+        {/* Checkout Modal - Show if table is available OR session owner */}
+        {showCheckout && (tableStatus === "available" || (tableStatus === "reserved" && isSessionOwner)) && (
           <div className="modal-overlay">
             <div className="checkout-modal">
               <div className="checkout-header">
@@ -1693,50 +2225,42 @@ const PublicMenu = () => {
               </div>
 
               <div className="checkout-content">
+                {/* Details were captured on the gate screen before the menu.
+                    Shown read-only here for confirmation, with Edit to correct
+                    a typo (reopens the same gate form). */}
                 <div className="customer-details">
-                  <h4>Customer Information</h4>
-                  <div className="form-group">
-                    <label>
-                      <User size={16} />
-                      Full Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={customerDetails.name}
-                      onChange={(e) => setCustomerDetails({ ...customerDetails, name: e.target.value })}
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>
-                      <Phone size={16} />
-                      Mobile Number *
-                    </label>
-                    <input
-                      type="tel"
-                      value={customerDetails.mobile}
-                      onChange={(e) => setCustomerDetails({ ...customerDetails, mobile: e.target.value })}
-                      placeholder="Enter 10-digit mobile number"
-                      maxLength="10"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>
-                      <Users size={16} />
-                      Number of People
-                    </label>
-                    <select
-                      value={customerDetails.peopleCount}
-                      onChange={(e) => setCustomerDetails({ ...customerDetails, peopleCount: e.target.value })}
+                  <div className="cust-recap-head">
+                    <h4>Customer Information</h4>
+                    <button
+                      type="button"
+                      className="cust-edit-btn"
+                      onClick={() => {
+                        setShowCheckout(false)
+                        setEditingDetails(true)
+                      }}
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                        <option key={num} value={num}>
-                          {num}
-                        </option>
-                      ))}
-                    </select>
+                      Edit
+                    </button>
+                  </div>
+                  <div className="cust-recap">
+                    <div className="cust-recap-row">
+                      <span className="cust-recap-label">
+                        <User size={15} /> Name
+                      </span>
+                      <span className="cust-recap-value">{customerDetails.name || "—"}</span>
+                    </div>
+                    <div className="cust-recap-row">
+                      <span className="cust-recap-label">
+                        <Phone size={15} /> Mobile
+                      </span>
+                      <span className="cust-recap-value">{customerDetails.mobile || "—"}</span>
+                    </div>
+                    <div className="cust-recap-row">
+                      <span className="cust-recap-label">
+                        <Users size={15} /> People
+                      </span>
+                      <span className="cust-recap-value">{customerDetails.peopleCount || 1}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -1810,7 +2334,7 @@ const PublicMenu = () => {
                     <p style={{ fontSize: '14px', color: '#9ca3af', marginTop: '8px' }}>
                       Place your first order to see it here
                     </p>
-                    <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '13px', textAlign: 'left', border: '1px solid #fbbf24' }}>
+                    {/* <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '13px', textAlign: 'left', border: '1px solid #fbbf24' }}>
                       <p style={{ fontWeight: 'bold', marginBottom: '8px', color: '#92400e' }}>🔍 Debug Information:</p>
                       <p style={{ marginBottom: '4px', color: '#78350f' }}><strong>Session ID:</strong> {sessionId || '❌ Not set'}</p>
                       <p style={{ marginBottom: '4px', color: '#78350f' }}><strong>Storage Key:</strong> orders_{sessionId}</p>
@@ -1877,7 +2401,7 @@ const PublicMenu = () => {
                       >
                         🔄 Refresh Orders
                       </button>
-                    </div>
+                    </div> */}
                   </div>
                 ) : (
                   <div className="orders-list">
@@ -1920,6 +2444,13 @@ const PublicMenu = () => {
       </div>
 
       <style jsx global>{`
+        /* Inline SVG (utensils glyph) used by the image-fallback tiles.
+           Embedded as a data URI so there is no file to 404 — the missing
+           /placeholder.svg is exactly what caused the old flicker loop. */
+        :root {
+          --food-icon: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 2v7a3 3 0 0 0 3 3v10'/%3E%3Cpath d='M6 2v7'/%3E%3Cpath d='M9 2v7a3 3 0 0 1-3 3'/%3E%3Cpath d='M17 2c-1.7 0-3 1.8-3 4s1.3 4 3 4 3-1.8 3-4-1.3-4-3-4z'/%3E%3Cpath d='M17 10v12'/%3E%3C/svg%3E");
+        }
+
         * {
           margin: 0;
           padding: 0;
@@ -2236,6 +2767,32 @@ const PublicMenu = () => {
           font-weight: bold;
         }
 
+        /* Floating My Orders Button */
+        .floating-my-orders {
+          position: fixed;
+          bottom: 20px;
+          left: 20px;
+          height: 44px;
+          padding: 0 16px;
+          background: #1f2937;
+          color: white;
+          border: none;
+          border-radius: 22px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+          cursor: pointer;
+          z-index: 100;
+          transition: transform 0.2s ease;
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .floating-my-orders:hover {
+          transform: scale(1.05);
+        }
+
         /* Main Content - Scrollable */
         .main-content {
           flex: 1;
@@ -2320,12 +2877,82 @@ const PublicMenu = () => {
         .card-image img {
           width: 100%;
           height: 100%;
-          object-fit: cover;
+          object-fit: contain;
           transition: transform 0.3s ease;
         }
 
         .menu-card:hover .card-image img {
           transform: scale(1.05);
+        }
+
+        /* Fallback shown when a menu item has no image, or its image 404s.
+           Pure CSS — no network request, so it cannot fail or flicker. */
+        .card-image-fallback {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #f5efec 0%, #e8dcd7 100%);
+        }
+
+        .card-image-fallback::after {
+          content: "";
+          width: 34px;
+          height: 34px;
+          opacity: 0.45;
+          background-color: #b08d80;
+          -webkit-mask: var(--food-icon) center / contain no-repeat;
+          mask: var(--food-icon) center / contain no-repeat;
+        }
+
+        /* Subcategory filter chips */
+        .subcat-row {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding: 4px 0 10px;
+          margin-bottom: 4px;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+
+        .subcat-row::-webkit-scrollbar {
+          display: none;
+        }
+
+        .subcat-chip {
+          flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 34px;
+          padding: 0 14px;
+          border-radius: 17px;
+          border: 1px solid #e5ddd9;
+          background: #fff;
+          color: #6b5b53;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .subcat-chip:hover {
+          border-color: #d3bdb4;
+        }
+
+        .subcat-chip.active {
+          background: #6B2219;
+          border-color: #6B2219;
+          color: #fff;
+        }
+
+        .subcat-chip-count {
+          font-size: 11px;
+          font-weight: 700;
+          opacity: 0.75;
         }
 
         .card-content {
@@ -2541,6 +3168,84 @@ const PublicMenu = () => {
           height: 50px;
           object-fit: cover;
           border-radius: 6px;
+        }
+
+        .cart-item-image-fallback {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #f5efec 0%, #e8dcd7 100%);
+        }
+
+        .cart-item-image-fallback::after {
+          content: "";
+          width: 20px;
+          height: 20px;
+          opacity: 0.45;
+          background-color: #b08d80;
+          -webkit-mask: var(--food-icon) center / contain no-repeat;
+          mask: var(--food-icon) center / contain no-repeat;
+        }
+
+        /* Read-only customer recap in the checkout modal */
+        .cust-recap-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .cust-edit-btn {
+          background: transparent;
+          border: 1px solid #e5ddd9;
+          color: #6B2219;
+          font-size: 12px;
+          font-weight: 700;
+          padding: 5px 12px;
+          border-radius: 14px;
+          cursor: pointer;
+        }
+
+        .cust-edit-btn:hover {
+          background: #fff5f4;
+        }
+
+        .cust-recap {
+          background: #f9fafb;
+          border: 1px solid #eef0f2;
+          border-radius: 10px;
+          padding: 4px 12px;
+          margin-top: 10px;
+        }
+
+        .cust-recap-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 0;
+          border-bottom: 1px solid #eef0f2;
+        }
+
+        .cust-recap-row:last-child {
+          border-bottom: none;
+        }
+
+        .cust-recap-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 13px;
+          color: #6b7280;
+        }
+
+        .cust-recap-value {
+          font-size: 14px;
+          font-weight: 700;
+          color: #1f2937;
+          text-align: right;
+          word-break: break-word;
         }
 
         .cart-item-details {
@@ -2873,6 +3578,10 @@ const PublicMenu = () => {
             bottom: 80px;
           }
 
+          .floating-my-orders {
+            bottom: 80px;
+          }
+
           .modal-overlay {
             padding: 15px;
             align-items: center;
@@ -2934,5 +3643,4 @@ const PublicMenu = () => {
     </>
   )
 }
-
 export default PublicMenu

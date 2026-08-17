@@ -22,23 +22,23 @@ const PrivacyPolicy = () => {
             <b>PRIVACY POLICY</b>
           </h2>
 
-          <p>Effective date: 2025-06-26</p>
+          <p>Effective date: 2026-07-26</p>
 
           <p>
             1. <b>Introduction</b>
           </p>
 
           <p>
-            Welcome to <b> Hotel Virat</b>.
+            Welcome to <b> jagali Koota</b>.
           </p>
 
           <p>
-            <b>Hotel Virat</b> ("us", "we", or "our") operates <b>https://billing.jagalikoota.com</b> (hereinafter referred to as{" "}
+            <b>jagali Koota</b> ("us", "we", or "our") operates <b>https://jagalikoota.com</b> (hereinafter referred to as{" "}
             <b>"Service"</b>).
           </p>
 
           <p>
-            Our Privacy Policy governs your visit to <b>https://billing.jagalikoota.com</b>, and explains how we collect,
+            Our Privacy Policy governs your visit to <b>https://jagalikoota.com</b>, and explains how we collect,
             safeguard and disclose information that results from your use of our Service.
           </p>
 
@@ -58,7 +58,7 @@ const PrivacyPolicy = () => {
           </p>
 
           <p>
-            <b>SERVICE</b> means the https://billing.jagalikoota.comwebsite operated by Hotel Virat.
+            <b>SERVICE</b> means the https://jagalikoota.comwebsite operated by jagali Koota.
           </p>
 
           <p>
@@ -214,7 +214,7 @@ const PrivacyPolicy = () => {
             5. <b>Use of Data</b>
           </p>
 
-          <p>Hotel Virat uses the collected data for various purposes:</p>
+          <p>jagali Koota uses the collected data for various purposes:</p>
 
           <p>0.1. to provide and maintain our Service;</p>
 
@@ -289,7 +289,7 @@ const PrivacyPolicy = () => {
           </p>
 
           <p>
-            Hotel Virat will take all the steps reasonably necessary to ensure that your data is treated securely and in
+            jagali Koota will take all the steps reasonably necessary to ensure that your data is treated securely and in
             accordance with this Privacy Policy and no transfer of your Personal Data will take place to an organisation
             or a country unless there are adequate controls in place including the security of your data and other
             personal information.
@@ -346,7 +346,7 @@ const PrivacyPolicy = () => {
           <p>
             {" "}
             If you wish to be informed what Personal Data we hold about you and if you want it to be removed from our
-            systems, please email us at <b>infohotelvirat@gmail.com</b>.
+            systems, please email us at <b>support@jagalikoota.com</b>.
           </p>
           <p>In certain circumstances, you have the following data protection rights:</p>
           <p>0.1. the right to access, update or to delete the information we have on you;</p>
@@ -397,7 +397,7 @@ const PrivacyPolicy = () => {
           </p>
           <p>0.3. users will be notified of any privacy policy changes on our Privacy Policy Page;</p>
           <p>
-            0.4. users are able to change their personal information by emailing us at <b>infohotelvirat@gmail.com</b>.
+            0.4. users are able to change their personal information by emailing us at <b>support@jagalikoota.com</b>.
           </p>
           <p>Our Policy on "Do Not Track" Signals:</p>
           <p>
@@ -466,7 +466,7 @@ const PrivacyPolicy = () => {
           </p>
           <p>
             To exercise your California data protection rights described above, please send your request(s) by email:{" "}
-            <b>infohotelvirat@gmail.com</b>.
+            <b>support@jagalikoota.com</b>.
           </p>
           <p>
             Your data protection rights, described above, are covered by the CCPA, short for the California Consumer
@@ -601,7 +601,7 @@ const PrivacyPolicy = () => {
 
           <p>
             If you have any questions about this Privacy Policy, please contact us by email:{" "}
-            <b>infohotelvirat@gmail.com</b>.
+            <b>support@jagalikoota.com</b>.
           </p>
 
          {/*  <p style={{ marginTop: "5em", fontSize: "0.7em" }}>
@@ -609,7 +609,7 @@ const PrivacyPolicy = () => {
             <a href="https://policymaker.io/privacy-policy/" target="_blank" rel="noopener noreferrer">
               Privacy Policy
             </a>{" "}
-            was created for <b>https://billing.jagalikoota.com</b> by{" "}
+            was created for <b>https://jagalikoota.com</b> by{" "}
             <a href="https://policymaker.io" target="_blank" rel="noopener noreferrer">
               PolicyMaker.io
             </a>{" "}

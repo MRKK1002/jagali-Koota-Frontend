@@ -247,6 +247,47 @@ const BillGeneration = () => {
   const [complimentaryReason, setComplimentaryReason] = useState("")
   const [showComplimentaryPopup, setShowComplimentaryPopup] = useState(false)
 
+  // Member Wallet state
+  const [memberDetails, setMemberDetails] = useState(null)
+  const [loadingMember, setLoadingMember] = useState(false)
+  const [walletDeducting, setWalletDeducting] = useState(false)
+
+  // Fetch member details if it's a Member App order
+  useEffect(() => {
+    const fetchMemberDetails = async () => {
+      // Check if this is a Member App order
+      // Navigation state uses `existingOrderIds` (array) for comprehensive bills
+      // and `existingOrderId` (singular) for single-KOT bills. Use the first
+      // available ID to look up the member.
+      const orderId =
+        orderData?.existingOrderId ||
+        (orderData?.existingOrderIds && orderData.existingOrderIds[0]) ||
+        null;
+
+      if (orderData?.serverName === 'Member App' && orderId) {
+        try {
+          setLoadingMember(true)
+          const response = await fetch(
+            `https://billing.jagalikoota.com/api/v1/hotel/wallet/member-by-order/${orderId}`
+          )
+          const data = await response.json()
+          
+          if (data.success) {
+            setMemberDetails(data.member)
+          } else {
+            console.warn('Member not found:', data.message)
+          }
+        } catch (error) {
+          console.error('Error fetching member details:', error)
+        } finally {
+          setLoadingMember(false)
+        }
+      }
+    }
+    
+    fetchMemberDetails()
+  }, [orderData])
+
   // Auto-focus discount popup when it opens
   useEffect(() => {
     if (showDiscountPopup) {
@@ -467,6 +508,92 @@ const BillGeneration = () => {
   }, [printing, cartItems, showDiscountPopup, showComplimentaryPopup, appliedDiscount, isComplimentary]) // Re-run if discount or complimentary state changes
 
   // All function declarations must come before any return statements
+  const handleWalletDeduction = async () => {
+    if (!memberDetails) {
+      alert('Member details not loaded')
+      return false
+    }
+
+    // Calculate total the same way as the rest of the component
+    const billSubtotal = cartItems.reduce((sum, item) => item.isComplimentary ? sum : sum + (item.price * item.quantity), 0)
+    const billGst = cartItems.reduce((sum, item) => {
+      if (item.isComplimentary) return sum
+      const rate = item.gstRate || 0
+      return sum + ((item.price * item.quantity * rate) / 100)
+    }, 0)
+    const totalAmount = billSubtotal + billGst - getDiscountAmount()
+
+    // Check balance
+    if (memberDetails.walletBalance < totalAmount) {
+      alert(
+        `Insufficient Balance!\n\n` +
+        `Required: ₹${totalAmount.toFixed(2)}\n` +
+        `Available: ₹${memberDetails.walletBalance.toFixed(2)}\n` +
+        `Short by: ₹${(totalAmount - memberDetails.walletBalance).toFixed(2)}`
+      )
+      return false
+    }
+
+    // Confirm deduction
+    const confirmed = window.confirm(
+      `Deduct from Wallet?\n\n` +
+      `Member: ${memberDetails.name}\n` +
+      `Phone: ${memberDetails.phone}\n` +
+      `Amount: ₹${totalAmount.toFixed(2)}\n` +
+      `Balance After: ₹${(memberDetails.walletBalance - totalAmount).toFixed(2)}\n\n` +
+      `Click OK to proceed`
+    )
+
+    if (!confirmed) return false
+
+    try {
+      setWalletDeducting(true)
+
+      const response = await fetch(
+        'https://billing.jagalikoota.com/api/v1/hotel/wallet/deduct-for-order',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            orderId: orderData.existingOrderId || (orderData.existingOrderIds && orderData.existingOrderIds[0]),
+            memberPhone: memberDetails.phone,
+            amount: totalAmount
+          })
+        }
+      )
+
+      const data = await response.json()
+
+      if (data.success) {
+        alert(
+          `✅ Payment Successful!\n\n` +
+          `Amount Deducted: ₹${data.transaction.amount.toFixed(2)}\n` +
+          `Previous Balance: ₹${data.transaction.balanceBefore.toFixed(2)}\n` +
+          `New Balance: ₹${data.transaction.balanceAfter.toFixed(2)}`
+        )
+
+        // Update member details locally
+        setMemberDetails(prev => ({
+          ...prev,
+          walletBalance: data.transaction.balanceAfter
+        }))
+
+        return true
+      } else {
+        alert(`❌ Payment Failed\n\n${data.message}`)
+        return false
+      }
+    } catch (error) {
+      console.error('Error deducting from wallet:', error)
+      alert(`❌ Error: ${error.message}`)
+      return false
+    } finally {
+      setWalletDeducting(false)
+    }
+  }
+
   const handleDone = async (providedBillNumber = null) => {
     // resolvedCategoryName and resolvedCategoryId are defined at component level above
     
@@ -2149,6 +2276,129 @@ const BillGeneration = () => {
             }}>
               {printError.type === 'success' ? '✅' : '❌'} {printError.message}
             </div>
+          </div>
+        )}
+
+        {/* Member Wallet Payment Section */}
+        {orderData?.serverName === 'Member App' && (
+          <div style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '12px',
+            padding: '20px',
+            marginBottom: '16px',
+            marginTop: '16px',
+            color: 'white',
+            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '28px' }}>💳</div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                  Member App Order
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', opacity: 0.9 }}>
+                  Payment via Member Wallet
+                </p>
+              </div>
+            </div>
+
+            {loadingMember ? (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                <div style={{ fontSize: '14px', marginTop: '8px' }}>Loading member details...</div>
+              </div>
+            ) : memberDetails ? (
+              <>
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px' }}>
+                    <div>
+                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Member Name</div>
+                      <div style={{ fontWeight: '600' }}>{memberDetails.name}</div>
+                    </div>
+                    <div>
+                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Member ID</div>
+                      <div style={{ fontWeight: '600' }}>{memberDetails.memberNumber}</div>
+                    </div>
+                    <div>
+                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Phone</div>
+                      <div style={{ fontWeight: '600' }}>{memberDetails.phone}</div>
+                    </div>
+                    <div>
+                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Membership</div>
+                      <div style={{ fontWeight: '600', textTransform: 'capitalize' }}>
+                        {memberDetails.membershipType || 'Member'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '8px' }}>
+                    Current Wallet Balance
+                  </div>
+                  <div style={{ fontSize: '32px', fontWeight: '700' }}>
+                    ₹{(memberDetails.walletBalance || 0).toFixed(2)}
+                  </div>
+                  {memberDetails.walletBalance < total && (
+                    <div style={{
+                      marginTop: '8px',
+                      fontSize: '13px',
+                      background: 'rgba(239, 68, 68, 0.9)',
+                      padding: '8px 12px',
+                      borderRadius: '6px'
+                    }}>
+                      ⚠️ Insufficient Balance (Short by ₹{(total - memberDetails.walletBalance).toFixed(2)})
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleWalletDeduction}
+                  disabled={walletDeducting || memberDetails.walletBalance < total}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    fontSize: '16px',
+                    fontWeight: '700',
+                    background: memberDetails.walletBalance >= total 
+                      ? 'rgba(255, 255, 255, 0.95)' 
+                      : 'rgba(255, 255, 255, 0.3)',
+                    color: memberDetails.walletBalance >= total ? '#667eea' : 'rgba(255, 255, 255, 0.6)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: memberDetails.walletBalance >= total ? 'pointer' : 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {walletDeducting ? (
+                    <>⏳ Processing...</>
+                  ) : memberDetails.walletBalance >= total ? (
+                    <>💳 Deduct ₹{total.toFixed(2)} from Wallet</>
+                  ) : (
+                    <>❌ Insufficient Balance</>
+                  )}
+                </button>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '20px', opacity: 0.9 }}>
+                ⚠️ Member details not available
+              </div>
+            )}
           </div>
         )}
 

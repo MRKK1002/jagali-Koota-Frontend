@@ -2476,21 +2476,46 @@ const MenuScreen = () => {
           }))
         console.log('[SalesReport] allBills from local (date filtered):', allBills.length, '| date:', selectedDate)
 
-        // 2. If online, fetch ALL server bills for this branch/date (no category filter)
+        // 2. If online, fetch server bills for this branch/date (no category filter)
         if (navigator.onLine) {
           try {
-            // Fetch without date filter to catch KOTs created on a different day but billed today
-            // (e.g. KOT created yesterday evening, billed this morning)
-            // We filter by date client-side using savedAt/createdAt
-            const serverQueryOptions = { limit: 10000, includeComplimentary: false }
-            // No categoryName filter — get all bills so nothing is missed
-            const serverRes = await counterApi.getOrders(branchId, serverQueryOptions)
+            // Use date filter on server side — much faster than fetching all 10000
+            // Also check localStorage cache first to avoid redundant API calls
+            const salesCacheKey = `sales_server_${branchId}_${selectedDate}`
             let serverOrders = []
-            if (serverRes?.success && Array.isArray(serverRes.data)) serverOrders = serverRes.data
-            else if (serverRes?.success && Array.isArray(serverRes.orders)) serverOrders = serverRes.orders
-            else if (Array.isArray(serverRes?.orders)) serverOrders = serverRes.orders
-            else if (Array.isArray(serverRes?.data)) serverOrders = serverRes.data
-            else if (Array.isArray(serverRes)) serverOrders = serverRes
+            const cachedServerData = (() => {
+              try {
+                const cached = localStorage.getItem(salesCacheKey)
+                if (!cached) return null
+                const parsed = JSON.parse(cached)
+                // Cache valid for 2 minutes
+                if (Date.now() - parsed.timestamp > 2 * 60 * 1000) {
+                  localStorage.removeItem(salesCacheKey)
+                  return null
+                }
+                return parsed.data
+              } catch (_) { return null }
+            })()
+
+            if (cachedServerData) {
+              console.log('[SalesReport] Using localStorage cache for server orders:', cachedServerData.length)
+              serverOrders = cachedServerData
+            } else {
+              // Fetch with date filter — server handles pagination internally
+              const serverQueryOptions = { limit: 10000, includeComplimentary: false, date: selectedDate }
+              const serverRes = await counterApi.getOrders(branchId, serverQueryOptions)
+              if (serverRes?.success && Array.isArray(serverRes.data)) serverOrders = serverRes.data
+              else if (serverRes?.success && Array.isArray(serverRes.orders)) serverOrders = serverRes.orders
+              else if (Array.isArray(serverRes?.orders)) serverOrders = serverRes.orders
+              else if (Array.isArray(serverRes?.data)) serverOrders = serverRes.data
+              else if (Array.isArray(serverRes)) serverOrders = serverRes
+
+              // Cache in localStorage for quick re-opens
+              try {
+                localStorage.setItem(salesCacheKey, JSON.stringify({ data: serverOrders, timestamp: Date.now() }))
+              } catch (_) { /* localStorage full — ignore */ }
+              console.log('[SalesReport] Fetched from server with date filter:', serverOrders.length)
+            }
 
             // Keep only entries that have an invoiceNumber (bills, not raw KOTs)
             // BUT also include KOT entries that have an invoiceNumber set (single-KOT completed bills)
@@ -3767,14 +3792,7 @@ const MenuScreen = () => {
           })
       }
 
-      // console.log('📊 Sales report loaded:', salesReport)
-      // console.log('📊 Sample order with amounts:', salesReport.orders[0])
-      // console.log('📊 All order amounts:', salesReport.orders.map(o => ({
-      //   orderNumber: o.orderNumber,
-      //   totalAmount: o.totalAmount,
-      //   discountAmount: o.discountAmount,
-      //   originalTotalAmount: o.originalTotalAmount
-      // })))
+
 
       // Special debug for discount orders
       const ordersWithDiscount = salesReport.orders.filter(o => o.discountAmount > 0)
@@ -3835,6 +3853,14 @@ const MenuScreen = () => {
   const loadSalesReport = async (selectedDate = null) => {
     try {
       setCurrentPage(1) // Reset pagination to first page when loading new data
+
+      // Clear server sales cache for this date (force fresh data on explicit load)
+      try {
+        const branchId = customerData?.selectedBranch?._id || localStorage.getItem('selectedBranchId')
+        if (branchId && selectedDate) {
+          localStorage.removeItem(`sales_server_${branchId}_${selectedDate}`)
+        }
+      } catch (_) {}
 
       // Only show loading spinner if we have no existing data to display
       if (!salesData) {
@@ -3934,7 +3960,11 @@ const MenuScreen = () => {
   const loadComplimentaryBills = async (selectedDate = null) => {
     setComplimentaryLoading(true)
     try {
-      const targetDate = selectedDate || selectedComplimentaryDate
+      // Guard: if selectedDate is not a string (e.g. event object passed by accident), use state value
+      const rawDate = (typeof selectedDate === 'string' && selectedDate.length > 0)
+        ? selectedDate
+        : selectedComplimentaryDate
+      const targetDate = rawDate
 
       let branchId = customerData?.selectedBranch?._id
       if (!branchId) {
@@ -5595,13 +5625,10 @@ const MenuScreen = () => {
                           alt={item.name}
                           style={{ width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#f9f9f9' }}
                           onError={(e) => {
-                            const prodUrl = getProdImageUrl(item.image)
-                            if (prodUrl && e.target.src !== prodUrl) {
-                              e.target.src = prodUrl
-                            } else {
-                              e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='140'%3E%3Crect fill='%23f3f4f6' width='300' height='140'/%3E%3Ctext fill='%239ca3af' font-family='sans-serif' font-size='13' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ENo Image%3C/text%3E%3C/svg%3E`
-                              e.target.onerror = null
-                            }
+                            // Immediately stop any further retries
+                            e.target.onerror = null;
+                            // Show placeholder SVG — image doesn't exist on server
+                            e.target.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='140'%3E%3Crect fill='%23f3f4f6' width='300' height='140'/%3E%3Ctext fill='%239ca3af' font-family='sans-serif' font-size='13' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ENo Image%3C/text%3E%3C/svg%3E`
                           }}
                         />
                       </div>
@@ -7341,6 +7368,11 @@ const MenuScreen = () => {
                                             <span style={{ color: '#15803d', marginLeft: '4px' }}>
                                               (₹{item.price})
                                             </span>
+                                            {item.remark && (
+                                              <div style={{ fontSize: '0.72rem', color: '#92400e', fontStyle: 'italic', marginTop: '2px' }}>
+                                                📝 {item.remark}
+                                              </div>
+                                            )}
                                           </div>
                                         ))}
                                       </div>
@@ -7735,7 +7767,7 @@ const MenuScreen = () => {
                 textAlign: 'center'
               }}>
                 <button
-                  onClick={loadComplimentaryBills}
+                  onClick={() => loadComplimentaryBills(selectedComplimentaryDate)}
                   disabled={complimentaryLoading}
                   style={{
                     background: '#f59e0b',

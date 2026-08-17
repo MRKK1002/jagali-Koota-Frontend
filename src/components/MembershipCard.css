@@ -1,0 +1,504 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Cormorant+Garamond:wght@400;500;600;700&family=Cinzel:wght@400;700;900&display=swap');
+
+/* Membership Card Modal */
+.membership-card-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.membership-card-modal {
+  background: #1a1a1a;
+  border-radius: 16px;
+  max-width: 1050px;
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+
+.membership-card-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 28px;
+  border-bottom: 1px solid #333;
+}
+
+.membership-card-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.card-modal-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn-print-card {
+  background: linear-gradient(135deg, #8b2020, #5a1515);
+  color: white;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+
+.btn-print-card:hover {
+  background: linear-gradient(135deg, #a52828, #8b2020);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(139, 32, 32, 0.5);
+}
+
+.btn-close-card {
+  background: none;
+  border: 1px solid #444;
+  font-size: 20px;
+  cursor: pointer;
+  color: #999;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.btn-close-card:hover {
+  background: #333;
+  color: #fff;
+  border-color: #666;
+}
+
+/* Card Preview Area */
+.membership-card-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding: 40px;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Card Container - Credit card ratio */
+.card-container {
+  width: 540px;
+  height: 360px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+
+/* ===== FRONT CARD ===== */
+.card-front {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(160deg, #f7f2e8 0%, #ede6d6 100%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e0d5c0;
+}
+
+.card-front-header {
+  background: linear-gradient(135deg, #5a1515 0%, #8b2020 50%, #6b1a1a 100%);
+  padding: 14px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-front-header .logo-text {
+  color: #f5ebe0;
+  font-family: 'Cinzel', 'Georgia', serif;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+
+.card-front-header .official-text {
+  text-align: right;
+}
+
+.card-front-header .official-text .small-label {
+  font-size: 9px;
+  color: #e8d5b5;
+  letter-spacing: 4px;
+}
+
+.card-front-header .official-text .card-title {
+  font-size: 14px;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-top: 2px;
+}
+
+.card-front-body {
+  flex: 1;
+  display: flex;
+  padding: 18px 24px;
+  gap: 0;
+}
+
+.photo-section {
+  width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.photo-frame {
+  width: 100px;
+  height: 115px;
+  border: 2px solid #c5a55a;
+  outline: 2px solid #d4b96a;
+  outline-offset: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #f8f3eb;
+}
+
+.photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-placeholder-svg {
+  width: 50px;
+  height: 65px;
+  opacity: 0.5;
+}
+
+.affix-text {
+  font-size: 8px;
+  color: #a09070;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+}
+
+.details-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 14px;
+}
+
+.divider-dot {
+  width: 9px;
+  height: 9px;
+  background: #c5a55a;
+  border-radius: 50%;
+}
+
+.divider-line {
+  width: 1.5px;
+  flex: 1;
+  background: linear-gradient(to bottom, #c5a55a, #d4b96a 50%, transparent);
+}
+
+.details-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.detail-group {
+  margin-bottom: 10px;
+}
+
+.detail-separator {
+  border-bottom: 1px dotted #c5b89a;
+  margin-top: 8px;
+}
+
+.detail-label {
+  font-size: 9px;
+  color: #8b7355;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.detail-value {
+  font-size: 18px;
+  color: #2c1810;
+  font-weight: 700;
+  font-family: 'Playfair Display', 'Georgia', serif;
+}
+
+.detail-value.name {
+  font-size: 22px;
+}
+
+.detail-value.bold {
+  font-weight: 900;
+}
+
+.detail-row {
+  display: flex;
+  gap: 28px;
+  margin-top: 10px;
+  align-items: flex-start;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-row .detail-label {
+  font-size: 8px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  display: block;
+}
+
+.detail-row .detail-value {
+  font-size: 20px;
+  font-weight: 900;
+  display: block;
+}
+
+.card-front-footer {
+  padding: 14px 50px 16px;
+  display: flex;
+  justify-content: space-between;
+  margin-top: auto;
+}
+
+.signature-block {
+  text-align: center;
+}
+
+.signature-line {
+  width: 120px;
+  height: 2px;
+  background: #8b2020;
+  margin-bottom: 6px;
+}
+
+.signature-label {
+  font-size: 8px;
+  color: #8b7355;
+  letter-spacing: 3px;
+}
+
+/* ===== BACK CARD ===== */
+.card-back {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(160deg, #f7f2e8 0%, #ede6d6 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 3.5px solid #8b2020;
+  box-sizing: border-box;
+  padding: 20px 28px;
+}
+
+.card-back-header {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.back-logo-decoration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.deco-line {
+  display: inline-block;
+  width: 28px;
+  height: 1.5px;
+  background: #8b2020;
+}
+
+.deco-diamond {
+  color: #8b2020;
+  font-size: 7px;
+}
+
+.back-logo {
+  font-family: 'Cinzel', 'Georgia', serif;
+  font-size: 26px;
+  font-weight: 900;
+  color: #8b2020;
+  letter-spacing: 3px;
+  line-height: 1.15;
+}
+
+.card-back-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.address-section {
+  text-align: center;
+  margin-bottom: 14px;
+}
+
+.address-label {
+  font-size: 9px;
+  color: #8b7355;
+  letter-spacing: 3px;
+  margin-bottom: 6px;
+}
+
+.address-text {
+  font-size: 14px;
+  color: #2c1810;
+  font-family: 'Cormorant Garamond', 'Georgia', serif;
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.address-icon {
+  width: 15px;
+  height: 15px;
+  color: #8b2020;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.contact-row {
+  display: flex;
+  width: 75%;
+  justify-content: center;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 0;
+  border-top: 1px solid #d8cdb8;
+  border-bottom: 1px solid #d8cdb8;
+  margin-bottom: 12px;
+}
+
+.contact-item {
+  text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.contact-icon {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  max-width: 20px;
+  max-height: 20px;
+  color: #8b2020;
+  margin-bottom: 4px;
+}
+
+.contact-label {
+  font-size: 8px;
+  color: #8b7355;
+  letter-spacing: 2.5px;
+}
+
+.contact-value {
+  font-size: 14px;
+  color: #2c1810;
+  font-family: 'Cormorant Garamond', 'Georgia', serif;
+  font-weight: 700;
+}
+
+.contact-divider {
+  width: 1.5px;
+  height: 36px;
+  background: #c5a55a;
+}
+
+.disclaimer {
+  text-align: center;
+  padding: 0 20px;
+  font-size: 10px;
+  color: #5c4a3a;
+  line-height: 1.7;
+  font-family: 'Cormorant Garamond', 'Georgia', serif;
+}
+
+.disclaimer p {
+  margin-bottom: 4px;
+}
+
+/* View Card Button in member list cards */
+.btn-view-card {
+  flex: 1;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #8b2020, #5a1515);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.btn-view-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 32, 32, 0.4);
+  background: linear-gradient(135deg, #a52828, #8b2020);
+}
+
+@media (max-width: 1000px) {
+  .membership-card-preview {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .card-container {
+    width: 360px;
+    height: 226px;
+  }
+  
+  .membership-card-modal {
+    margin: 10px;
+  }
+  
+  .membership-card-preview {
+    padding: 24px;
+    gap: 24px;
+  }
+}

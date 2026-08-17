@@ -19,7 +19,6 @@ export const safeJsonParse = async (response) => {
     throw new Error(`Failed to parse JSON: ${error.message}`);
   }
 };
-
 /**
  * Fetch wrapper with automatic JSON parsing and error handling
  * @param {string} url - API endpoint URL

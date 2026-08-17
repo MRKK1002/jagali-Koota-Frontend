@@ -500,7 +500,7 @@ const CategoryAccess = () => {
   );
 
   return (
-    <div className="category-access-page">
+      <div className="category-access-page">
       {successMessage && (
         <div className="success-message">
           <span>{successMessage}</span>
@@ -513,7 +513,6 @@ const CategoryAccess = () => {
           <button onClick={() => setErrorMessage("")} style={{ color: "#dc2626" }}>×</button>
         </div>
       )}
-      
       <div className="page-header">
         <h1>Category Access</h1>
         <div className="header-actions">
@@ -523,7 +522,6 @@ const CategoryAccess = () => {
           </button>
         </div>
       </div>
-
       <div className="filters-bar">
         <div className="search-container">
           <Search size={18} className="search-icon" />
@@ -536,7 +534,6 @@ const CategoryAccess = () => {
           />
         </div>
       </div>
-
       <div className="data-card">
         {isLoading ? (
           <div className="empty-state">Loading...</div>
@@ -604,7 +601,6 @@ const CategoryAccess = () => {
           </table>
         )}
       </div>
-
       {showModal && (
         <CategoryAccessModal
           user={currentUser}
@@ -615,7 +611,6 @@ const CategoryAccess = () => {
           isEditMode={!!currentUser}
         />
       )}
-
       {showDeleteModal && (
         <DeleteConfirmationModal
           user={userToDelete}
@@ -623,7 +618,7 @@ const CategoryAccess = () => {
           onConfirm={handleDeleteUser}
         />
       )}
-    </div>
+      </div>
   );
 };
 

@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { FiCalendar, FiClock, FiMapPin, FiUsers, FiEdit2, FiTrash2, FiPlus, FiBookOpen } from 'react-icons/fi';
+import { MdOutlineCurrencyRupee } from 'react-icons/md';
 import './Events.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://billing.jagalikoota.com/api/v1/hotel';
 const BASE_URL = API_URL.replace(/\/api\/v1\/hotel$/, ''); // Extract base URL for images
+
+const to12Hour = (time) => {
+  if (!time) return '';
+  const [h, m] = time.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
+};
 
 const Events = () => {
   const navigate = useNavigate();
@@ -138,7 +148,7 @@ const Events = () => {
       <div className="events-header">
         <h1>🎉 Events Management</h1>
         <button className="btn-primary" onClick={() => setShowModal(true)}>
-          ➕ Create Event
+          <FiPlus size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Create Event
         </button>
       </div>
 
@@ -148,65 +158,69 @@ const Events = () => {
         <div className="events-grid">
           {events.map((event) => (
             <div key={event._id} className="event-card">
-              {event.isPinned && <div className="pinned-badge">📌 Pinned</div>}
-              
-              {event.images && event.images.length > 0 && (
-                <div className="event-image">
-                  <img src={`${BASE_URL}${event.images[0]}`} alt={event.title} />
-                </div>
-              )}
+              {/* Image / placeholder */}
+              <div className="event-image">
+                {event.images && event.images.length > 0
+                  ? <img src={`${BASE_URL}${event.images[0]}`} alt={event.title} />
+                  : <div className="event-image-placeholder">🎉</div>
+                }
+                {event.isPinned && <div className="pinned-badge">📌 Pinned</div>}
+                {event.bookingEnabled && (
+                  <div className="booking-open-badge">🎫 Booking Open</div>
+                )}
+              </div>
 
               <div className="event-content">
-                <h3>{event.title}</h3>
+                <h3 className="event-title">{event.title}</h3>
                 <p className="event-description">{event.description}</p>
 
-                <div className="event-details">
-                  <div className="detail-item">
-                    <span className="icon">📅</span>
-                    <span>{new Date(event.eventDate).toLocaleDateString()}</span>
-                  </div>
-                  <div className="detail-item">
-                    <span className="icon">🕐</span>
-                    <span>{event.eventTime}</span>
-                  </div>
+                {/* Meta chips row */}
+                <div className="event-meta">
+                  <span className="meta-chip">
+                    <FiCalendar size={13} />
+                    {new Date(event.eventDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </span>
+                  <span className="meta-chip">
+                    <FiClock size={13} />
+                    {to12Hour(event.eventTime)}
+                  </span>
                   {event.location && (
-                    <div className="detail-item">
-                      <span className="icon">📍</span>
-                      <span>{event.location}</span>
-                    </div>
+                    <span className="meta-chip">
+                      <FiMapPin size={13} />
+                      {event.location}
+                    </span>
                   )}
                 </div>
 
-                {/* Booking Info */}
+                {/* Booking stats */}
                 {event.bookingEnabled && (
-                  <div className="booking-info">
-                    <div className="booking-detail">
-                      <span className="icon">💰</span>
-                      <span>₹{event.pricePerPerson}/person</span>
+                  <div className="booking-stats">
+                    <div className="booking-stat">
+                      <MdOutlineCurrencyRupee size={15} />
+                      <span>₹{event.pricePerPerson}<small>/person</small></span>
                     </div>
-                    <div className="booking-detail">
-                      <span className="icon">👥</span>
+                    <div className="booking-stat">
+                      <FiUsers size={14} />
                       <span>
-                        {event.totalBooked || 0} booked
-                        {event.maxBookings && ` / ${event.maxBookings} max`}
+                        <strong>{event.totalBooked || 0}</strong> booked
+                        {event.maxBookings && <> / <strong>{event.maxBookings}</strong> max</>}
                       </span>
                     </div>
                   </div>
                 )}
 
+                {/* Actions */}
                 <div className="event-actions">
                   {event.bookingEnabled && (
-                    <button 
-                      className="btn-bookings" 
-                      onClick={() => navigate(`/admin/event-bookings/${event._id}`)}>
-                      📋 View Bookings
+                    <button className="btn-bookings" onClick={() => navigate(`/admin/event-bookings/${event._id}`)}>
+                      <FiBookOpen size={14} style={{ marginRight: 5 }} /> View Bookings
                     </button>
                   )}
                   <button className="btn-edit" onClick={() => handleEdit(event)}>
-                    ✏️ Edit
+                    <FiEdit2 size={14} style={{ marginRight: 5 }} /> Edit
                   </button>
                   <button className="btn-delete" onClick={() => handleDelete(event._id)}>
-                    🗑️ Delete
+                    <FiTrash2 size={14} style={{ marginRight: 5 }} /> Delete
                   </button>
                 </div>
               </div>

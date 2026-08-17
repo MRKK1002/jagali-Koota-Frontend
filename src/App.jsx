@@ -33,6 +33,7 @@ import PurchaseUsers from "./pages/PurchaseUsers"
 import QRGeneratorV2 from "./pages/QRGeneratorV2"
 import PublicMenu from "./pages/PublicMenu"
 import PublicRestaurantOrders from "./pages/PublicRestaurantOrders"
+import MemberProfile from "./pages/MemberProfile"
 import PrivacyPolicy from "./pages/PrivacyPolicy"
 import TermsConditions from "./pages/TermsConditions"
 
@@ -62,6 +63,7 @@ import Members from "./pages/Members"
 import Events from "./pages/Events"
 import EventBookings from "./pages/EventBookings"
 import MemberOrders from "./pages/MemberOrders"
+import Gallery from "./pages/Gallery"
 
 // Import Counter App
 import CounterApp from "./viratcounterweb/CounterApp"
@@ -151,6 +153,7 @@ function App() {
                   <Route path="events" element={<Events />} />
                   <Route path="event-bookings/:eventId" element={<EventBookings />} />
                   <Route path="member-orders" element={<MemberOrders />} />
+                  <Route path="gallery" element={<Gallery />} />
 
                   <Route path="help-support" element={<HelpSupport />} />
                   <Route path="about-us" element={<AboutUs />} />
@@ -200,6 +203,7 @@ function App() {
         } />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/terms-conditions" element={<TermsConditions />} />
+        <Route path="/member/:memberId" element={<MemberProfile />} />
         <Route path="/category-orders" element={<CategoryOrders />} />
         <Route path="/kot" element={<KitchenDisplay />} />
         {/* <Route path="/receptionist-dashboard" element={<ReceptionistDashboard />} /> */}

@@ -567,7 +567,7 @@ const Tables = () => {
 
       <div className="page-header" style={{ position: 'relative', zIndex: 100 }}>
         <h1>
-          t</h1>
+          Table Management</h1>
         <div className="header-actions" style={{ position: 'relative', zIndex: 101 }}>
           <button className="btn btn-outline" onClick={exportTables}>
             <Download size={16} />

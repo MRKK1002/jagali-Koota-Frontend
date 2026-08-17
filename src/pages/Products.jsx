@@ -978,6 +978,9 @@ const Products = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [itemsPerPage] = useState(100); // 100 items per page
+  const [categoryCounts, setCategoryCounts] = useState({});
+  const [subcategoryCounts, setSubcategoryCounts] = useState({});
+  const [branchCounts, setBranchCounts] = useState({});
   
   // Quick lookup states
   const [quickLookupNumber, setQuickLookupNumber] = useState("");
@@ -1143,6 +1146,17 @@ const Products = () => {
         setCurrentPage(page);
         setTotalPages(Math.ceil(productsData.length / itemsPerPage));
         setTotalItems(productsData.length);
+      }
+      
+      // Extract category and subcategory counts from backend
+      if (response.categoryCounts) {
+        setCategoryCounts(response.categoryCounts);
+      }
+      if (response.subcategoryCounts) {
+        setSubcategoryCounts(response.subcategoryCounts);
+      }
+      if (response.branchCounts) {
+        setBranchCounts(response.branchCounts);
       }
       
       setProducts(productsData);
@@ -1418,14 +1432,10 @@ const Products = () => {
             transition: 'all 0.2s',
           }}
         >
-          All Branches ({products.length})
+          All Branches ({Object.values(branchCounts).reduce((sum, c) => sum + c, 0) || totalItems})
         </button>
         {branches.map((branch) => {
-          const branchProductCount = products.filter(p => {
-            if (!p.branchId) return false;
-            const productBranchId = typeof p.branchId === 'object' ? p.branchId._id : p.branchId;
-            return productBranchId === branch._id;
-          }).length;
+          const branchProductCount = branchCounts[branch._id] || 0;
           return (
             <button
               key={branch._id}
@@ -1467,7 +1477,7 @@ const Products = () => {
             transition: 'all 0.2s',
           }}
         >
-          All Categories ({selectedBranch ? filteredProducts.length : products.length})
+          All Categories ({Object.values(categoryCounts).reduce((sum, c) => sum + c, 0) || totalItems})
         </button>
         {categories
           .filter(cat => {
@@ -1476,11 +1486,7 @@ const Products = () => {
             return catBranchId === selectedBranch;
           })
           .map((category) => {
-            const categoryProductCount = (selectedBranch ? filteredProducts : products).filter(p => {
-              if (!p.categoryId) return false;
-              const productCategoryId = typeof p.categoryId === 'object' ? p.categoryId._id : p.categoryId;
-              return productCategoryId === category._id;
-            }).length;
+            const categoryProductCount = categoryCounts[category._id] || 0;
             return (
               <button
                 key={category._id}
@@ -1528,11 +1534,7 @@ const Products = () => {
               All Subcategories
             </button>
             {filteredSubcategories.map((subcategory) => {
-              const subcategoryProductCount = filteredProducts.filter(p => {
-                if (!p.subcategoryId) return false;
-                const productSubcategoryId = typeof p.subcategoryId === 'object' ? p.subcategoryId._id : p.subcategoryId;
-                return productSubcategoryId === subcategory._id;
-              }).length;
+              const subcategoryProductCount = subcategoryCounts[subcategory._id] || 0;
               return (
                 <button
                   key={subcategory._id}
@@ -1812,15 +1814,8 @@ const Products = () => {
                     alt={product.name || product.itemName}
                     className="grid-item-image"
                     onError={(e) => {
-                      // Try production URL as fallback
-                      const prodUrl = getProdImageUrl(product.image);
-                      if (prodUrl && e.target.src !== prodUrl) {
-                        e.target.src = prodUrl;
-                      } else {
-                        // Show placeholder if production also fails
-                        e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect fill='%23f3f4f6' width='300' height='200'/%3E%3Ctext fill='%239ca3af' font-family='sans-serif' font-size='16' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ENo Image%3C/text%3E%3C/svg%3E";
-                        e.target.onerror = null;
-                      }
+                      e.target.onerror = null;
+                      e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect fill='%23f3f4f6' width='300' height='200'/%3E%3Ctext fill='%239ca3af' font-family='sans-serif' font-size='16' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ENo Image%3C/text%3E%3C/svg%3E";
                     }}
                   />
                   {/* Subscription Badge */}

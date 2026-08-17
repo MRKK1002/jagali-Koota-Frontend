@@ -1,5 +1,4 @@
-// Thermal Printer Service for Receipt Printing
-// UPDATED: 2026-01-30 - Removed KOT info, bottom invoice number, and item numbers per user request
+
 class ThermalPrinterService {
   constructor() {
     this.printerWidth = 38; // Optimized width for TVS RP-3160 Gold 80mm printer
@@ -1117,5 +1116,4 @@ class ThermalPrinterService {
     return this.executePrintWithTimeout(kotText, options);
   }
 }
-
 export default new ThermalPrinterService();
