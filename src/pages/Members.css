@@ -1,7 +1,15 @@
 .members-container {
-  padding: 20px;
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
+  position: relative;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(139, 32, 32, 0.16), transparent 42%),
+    radial-gradient(circle at 88% 12%, rgba(59, 130, 212, 0.14), transparent 40%),
+    radial-gradient(circle at 78% 92%, rgba(22, 163, 74, 0.12), transparent 42%),
+    linear-gradient(135deg, #eef1f6 0%, #f6eef0 55%, #eaf0f5 100%);
+  background-attachment: fixed;
 }
 .members-header {
   display: flex;
@@ -11,33 +19,40 @@
 }
 .members-header h1 {
   font-size: 28px;
-  color: #333;
+  color: #2a2320;
   margin: 0;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
 }
 .btn-add-member {
-  background: linear-gradient(135deg, #8b2020, #5a1515);
+  background: linear-gradient(135deg, rgba(139, 32, 32, 0.92), rgba(90, 21, 21, 0.92));
   color: white;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
   padding: 12px 24px;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
   font-size: 16px;
   font-weight: 600;
   transition: all 0.3s;
   display: inline-flex;
   align-items: center;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 18px rgba(139, 32, 32, 0.28);
 }
 .btn-add-member:hover {
-  background: linear-gradient(135deg, #a52828, #8b2020);
+  background: linear-gradient(135deg, rgba(165, 40, 40, 0.95), rgba(139, 32, 32, 0.95));
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(139, 32, 32, 0.4);
+  box-shadow: 0 8px 24px rgba(139, 32, 32, 0.4);
 }
 .members-filters {
-  background: white;
+  background: rgba(255, 255, 255, 0.55);
   padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.12);
   margin-bottom: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }
 .search-box {
   margin-bottom: 15px;
@@ -45,9 +60,19 @@
 .search-box input {
   width: 100%;
   padding: 12px 16px;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
   font-size: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+}
+.search-box input:focus {
+  outline: none;
+  border-color: rgba(139, 32, 32, 0.5);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(139, 32, 32, 0.1);
 }
 .filter-buttons {
   display: flex;
@@ -71,38 +96,36 @@
 .filter-buttons button:hover {
   border-color: #8b2020;
 }
-/* ── Grid ─────────────────────────────────────────────────── */
 .members-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 24px;
 }
-
-/* ── Card shell ───────────────────────────────────────────── */
 .member-card {
-  background: #fff;
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 20px;
   padding: 0;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-  border: 1px solid #f0f0f0;
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
   display: flex;
   flex-direction: column;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
 }
 .member-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(31, 38, 135, 0.22);
+  background: rgba(255, 255, 255, 0.58);
 }
-
-/* ── Top stripe: avatar + badges ──────────────────────────── */
 .member-card-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 20px 20px 16px;
-  background: linear-gradient(135deg, #fbf1f1 0%, #fff 100%);
-  border-bottom: 1px solid #f5e8e8;
+  background: linear-gradient(135deg, rgba(251, 241, 241, 0.55) 0%, rgba(255, 255, 255, 0.25) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
 }
 .member-card-top-right {
   display: flex;
@@ -133,8 +156,6 @@
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
-
-/* ── Name / contact block ─────────────────────────────────── */
 .member-info {
   padding: 14px 20px 0;
 }
@@ -157,47 +178,50 @@
   color: #666;
   margin: 3px 0;
 }
-
-/* ── Stat chips row ───────────────────────────────────────── */
 .member-stats {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
   padding: 14px 20px;
-  flex-wrap: wrap;
 }
 .stat-chip {
-  flex: 1;
-  min-width: 90px;
-  background: #f7f8fa;
-  border-radius: 10px;
-  padding: 10px 12px;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  border: 1px solid #ebebeb;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 .stat-chip--wallet {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  background: rgba(240, 253, 244, 0.55);
+  border-color: rgba(187, 247, 208, 0.8);
 }
 .stat-label {
   font-size: 11px;
   color: #888;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stat-value {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: #222;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stat-chip--wallet .stat-value {
   color: #15803d;
 }
-
-/* ── Status badge ─────────────────────────────────────────── */
 .status {
   padding: 4px 10px;
   border-radius: 20px;
@@ -213,23 +237,23 @@
   background: #fee2e2;
   color: #b91c1c;
 }
-
-/* ── Action rows ──────────────────────────────────────────── */
 .member-actions {
-  display: flex;
+  display: grid;
   gap: 8px;
   padding: 0 16px;
 }
 .member-actions--primary {
+  grid-template-columns: 1fr 1fr;
   padding-top: 4px;
 }
 .member-actions--secondary {
+  grid-template-columns: 1fr 1fr;
   padding: 8px 16px 16px;
-  border-top: 1px solid #f5f5f5;
+  border-top: 1px solid rgba(255, 255, 255, 0.5);
   margin-top: 8px;
 }
 .member-actions button {
-  flex: 1;
+  width: 100%;
   padding: 9px 8px;
   border: none;
   border-radius: 8px;
@@ -241,13 +265,17 @@
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  min-width: 0;
 }
 .btn-edit {
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.5);
   color: #374151;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 .btn-edit:hover {
-  background: #e5e7eb;
+  background: rgba(255, 255, 255, 0.75);
 }
 .btn-delete {
   background: #fee2e2;
@@ -269,21 +297,26 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(20, 15, 15, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   padding: 20px;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 .modal-content {
-  background: white;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
   max-width: 700px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 60px rgba(31, 38, 135, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
 }
 .modal-header {
   display: flex;
@@ -693,10 +726,14 @@
   display: flex;
   gap: 4px;
   margin-bottom: 24px;
-  background: #f3f4f6;
-  padding: 4px;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.45);
+  padding: 5px;
+  border-radius: 14px;
   width: fit-content;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(31, 38, 135, 0.1);
 }
 
 .members-tab {
@@ -720,9 +757,9 @@
 }
 
 .members-tab.active {
-  background: white;
+  background: rgba(255, 255, 255, 0.85);
   color: #6B2219;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 10px rgba(31, 38, 135, 0.12);
 }
 
 .members-tab--danger.active {

@@ -11,13 +11,13 @@ const api = axios.create({
 })
 
 const Tables = () => {
-  const [allTables, setAllTables] = useState([]) // Store all tables from API
-  const [displayedTables, setDisplayedTables] = useState([]) // Tables to display for current page
-  const [filteredTables, setFilteredTables] = useState([]) // Tables after applying search filter
+  const [allTables, setAllTables] = useState([])
+  const [displayedTables, setDisplayedTables] = useState([]) 
+  const [filteredTables, setFilteredTables] = useState([]) 
   const [branches, setBranches] = useState([])
-  const [categories, setCategories] = useState([]) // All categories
-  const [filteredAddCategories, setFilteredAddCategories] = useState([]) // Filtered categories for Add modal
-  const [filteredEditCategories, setFilteredEditCategories] = useState([]) // Filtered categories for Edit modal
+  const [categories, setCategories] = useState([]) 
+  const [filteredAddCategories, setFilteredAddCategories] = useState([])
+  const [filteredEditCategories, setFilteredEditCategories] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -45,6 +45,21 @@ const Tables = () => {
   })
   const [successMessage, setSuccessMessage] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Bulk-add state — create a whole range of tables in one go (e.g. C-01 … C-50)
+  const [bulkModalOpen, setBulkModalOpen] = useState(false)
+  const [bulkForm, setBulkForm] = useState({
+    branchId: "",
+    categoryId: "",
+    prefix: "",       // e.g. "C-" or "G-", blank for plain numbers
+    from: "1",
+    to: "10",
+    padTo: "2",       // 2 -> 01, 3 -> 001
+    capacity: "4",
+    status: "available",
+  })
+  const [bulkProgress, setBulkProgress] = useState(null) // { done, total, failed[] }
+  const [filteredBulkCategories, setFilteredBulkCategories] = useState([])
 
   // State for filters
   const [searchTerm, setSearchTerm] = useState("")
@@ -390,6 +405,140 @@ const Tables = () => {
     }
   }
 
+  // ─── Bulk add ─────────────────────────────────────────────────────────────
+
+  // Build the list of table numbers the current bulk settings would produce.
+  // Used both for the live preview and for the actual create loop, so what the
+  // user sees is exactly what gets created.
+  const buildBulkNumbers = (form = bulkForm) => {
+    const from = parseInt(form.from, 10)
+    const to = parseInt(form.to, 10)
+    const pad = Math.max(0, parseInt(form.padTo, 10) || 0)
+    if (Number.isNaN(from) || Number.isNaN(to) || to < from) return []
+    const out = []
+    for (let i = from; i <= to; i++) {
+      out.push(`${form.prefix || ""}${String(i).padStart(pad, "0")}`)
+    }
+    return out
+  }
+
+  // Numbers that already exist for the chosen branch — skipped, not duplicated
+  const existingNumbersForBranch = (branchId) => {
+    const set = new Set()
+    allTables.forEach((t) => {
+      const tb = typeof t.branchId === "object" ? t.branchId?._id : t.branchId
+      if (String(tb) === String(branchId)) {
+        set.add(String(t.number ?? t.tableNumber ?? "").trim().toUpperCase())
+      }
+    })
+    return set
+  }
+
+  const handleOpenBulk = () => {
+    setBulkForm({
+      branchId: "",
+      categoryId: "",
+      prefix: "",
+      from: "1",
+      to: "10",
+      padTo: "2",
+      capacity: "4",
+      status: "available",
+    })
+    setBulkProgress(null)
+    setFilteredBulkCategories([])
+    setBulkModalOpen(true)
+  }
+
+  const handleBulkInputChange = (e) => {
+    const { name, value } = e.target
+    setBulkForm((prev) => {
+      const next = { ...prev, [name]: value }
+      // Branch drives which categories are selectable
+      if (name === "branchId") {
+        next.categoryId = ""
+        setFilteredBulkCategories(
+          categories.filter((c) => {
+            const cb = c.branch?.id || c.branchId
+            return String(cb) === String(value)
+          })
+        )
+      }
+      return next
+    })
+  }
+
+  const handleBulkCreate = async () => {
+    const numbers = buildBulkNumbers()
+
+    if (!bulkForm.branchId) {
+      alert("Please select a branch")
+      return
+    }
+    if (numbers.length === 0) {
+      alert('Invalid range — "To" must be greater than or equal to "From"')
+      return
+    }
+    if (numbers.length > 200) {
+      alert(`That would create ${numbers.length} tables. Please keep a single batch under 200.`)
+      return
+    }
+
+    // Skip anything that already exists on this branch
+    const existing = existingNumbersForBranch(bulkForm.branchId)
+    const toCreate = numbers.filter((n) => !existing.has(n.toUpperCase()))
+    const skipped = numbers.length - toCreate.length
+
+    if (toCreate.length === 0) {
+      alert(`All ${numbers.length} table numbers already exist on this branch. Nothing to create.`)
+      return
+    }
+
+    const confirmMsg =
+      `Create ${toCreate.length} tables?\n\n` +
+      `${toCreate[0]} … ${toCreate[toCreate.length - 1]}` +
+      (skipped > 0 ? `\n\n${skipped} already exist and will be skipped.` : "")
+    if (!window.confirm(confirmMsg)) return
+
+    setIsSubmitting(true)
+    const failed = []
+    setBulkProgress({ done: 0, total: toCreate.length, failed })
+
+    // Sequential on purpose — keeps server load predictable and lets a partial
+    // failure be reported precisely instead of failing the whole batch.
+    for (let i = 0; i < toCreate.length; i++) {
+      const number = toCreate[i]
+      try {
+        const fd = new FormData()
+        fd.append("branchId", bulkForm.branchId)
+        if (bulkForm.categoryId) fd.append("categoryId", bulkForm.categoryId)
+        fd.append("number", number)
+        fd.append("status", bulkForm.status)
+        if (bulkForm.capacity) fd.append("capacity", bulkForm.capacity)
+
+        await api.post("/table", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      } catch (err) {
+        failed.push({ number, reason: err?.response?.data?.message || err.message })
+      }
+      setBulkProgress({ done: i + 1, total: toCreate.length, failed: [...failed] })
+    }
+
+    await fetchTables()
+    setIsSubmitting(false)
+
+    const created = toCreate.length - failed.length
+    if (failed.length === 0) {
+      setBulkModalOpen(false)
+      setSuccessMessage(
+        `Created ${created} tables${skipped > 0 ? ` (${skipped} already existed)` : ""}`
+      )
+      setTimeout(() => setSuccessMessage(""), 4000)
+    }
+    // On partial failure the modal stays open so the failed list is visible
+  }
+
   // Handle save changes
   const handleSaveChanges = async () => {
     setIsSubmitting(true)
@@ -572,6 +721,10 @@ const Tables = () => {
           <button className="btn btn-outline" onClick={exportTables}>
             <Download size={16} />
             <span>Export</span>
+          </button>
+          <button className="btn btn-outline" onClick={handleOpenBulk} style={{ position: 'relative', zIndex: 102 }}>
+            <Upload size={16} />
+            <span>Bulk Add</span>
           </button>
           <button className="btn btn-primary" onClick={handleAddTable} style={{ position: 'relative', zIndex: 102 }}>
             <Plus size={16} />
@@ -905,6 +1058,225 @@ const Tables = () => {
           </div>
         </div>
       )}
+
+      {/* Bulk Add Tables Modal */}
+      {bulkModalOpen && (() => {
+        const preview = buildBulkNumbers()
+        const existing = bulkForm.branchId ? existingNumbersForBranch(bulkForm.branchId) : new Set()
+        const dupCount = preview.filter((n) => existing.has(n.toUpperCase())).length
+        const newCount = preview.length - dupCount
+
+        return (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '560px' }}>
+              <div className="modal-header">
+                <h3>Bulk Add Tables</h3>
+                <button
+                  className="modal-close"
+                  onClick={() => setBulkModalOpen(false)}
+                  disabled={isSubmitting}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="modal-body">
+                {/* Branch + Category */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Branch *</label>
+                    <select
+                      name="branchId"
+                      className="form-select"
+                      value={bulkForm.branchId}
+                      onChange={handleBulkInputChange}
+                    >
+                      <option value="">Select Branch</option>
+                      {branches.map((b) => (
+                        <option key={b._id} value={b._id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Category (optional)</label>
+                    <select
+                      name="categoryId"
+                      className="form-select"
+                      value={bulkForm.categoryId}
+                      onChange={handleBulkInputChange}
+                      disabled={!bulkForm.branchId}
+                    >
+                      <option value="">None</option>
+                      {filteredBulkCategories.map((c) => (
+                        <option key={c._id} value={c._id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Prefix + range */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '10px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Prefix</label>
+                    <input
+                      type="text"
+                      name="prefix"
+                      className="form-input"
+                      placeholder="C-  (blank = plain)"
+                      value={bulkForm.prefix}
+                      onChange={handleBulkInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">From</label>
+                    <input
+                      type="number" min="0" name="from" className="form-input"
+                      value={bulkForm.from} onChange={handleBulkInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">To</label>
+                    <input
+                      type="number" min="0" name="to" className="form-input"
+                      value={bulkForm.to} onChange={handleBulkInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Digits</label>
+                    <select
+                      name="padTo" className="form-select"
+                      value={bulkForm.padTo} onChange={handleBulkInputChange}
+                    >
+                      <option value="0">1, 2, 3</option>
+                      <option value="2">01, 02</option>
+                      <option value="3">001, 002</option>
+                      <option value="4">0001</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Capacity + status */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Capacity (each)</label>
+                    <input
+                      type="number" min="1" name="capacity" className="form-input"
+                      value={bulkForm.capacity} onChange={handleBulkInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Status</label>
+                    <select
+                      name="status" className="form-select"
+                      value={bulkForm.status} onChange={handleBulkInputChange}
+                    >
+                      <option value="available">Available</option>
+                      <option value="reserved">Reserved</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Live preview */}
+                <div style={{
+                  background: '#faf5f5', border: '1px solid #ede4e4',
+                  borderRadius: '10px', padding: '14px', marginTop: '4px'
+                }}>
+                  <div style={{
+                    fontSize: '0.72rem', fontWeight: 700, color: '#8a6b6b',
+                    textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px'
+                  }}>
+                    Preview — {preview.length} table{preview.length !== 1 ? 's' : ''}
+                    {dupCount > 0 && (
+                      <span style={{ color: '#b45309', marginLeft: '6px', textTransform: 'none' }}>
+                        · {dupCount} already exist (will be skipped)
+                      </span>
+                    )}
+                  </div>
+
+                  {preview.length === 0 ? (
+                    <div style={{ fontSize: '0.85rem', color: '#b5482f' }}>
+                      Invalid range — "To" must be ≥ "From"
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                      {preview.slice(0, 14).map((n) => {
+                        const dup = existing.has(n.toUpperCase())
+                        return (
+                          <span key={n} style={{
+                            padding: '3px 9px', borderRadius: '6px',
+                            fontSize: '0.75rem', fontWeight: 600,
+                            background: dup ? '#fbeae5' : '#fff',
+                            color: dup ? '#b5482f' : '#5c3030',
+                            border: `1px solid ${dup ? '#f3c4b8' : '#ede4e4'}`,
+                            textDecoration: dup ? 'line-through' : 'none',
+                          }}>
+                            {n}
+                          </span>
+                        )
+                      })}
+                      {preview.length > 14 && (
+                        <span style={{ padding: '3px 9px', fontSize: '0.75rem', color: '#8a6b6b' }}>
+                          … +{preview.length - 14} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Progress / failures */}
+                {bulkProgress && (
+                  <div style={{ marginTop: '14px' }}>
+                    <div style={{ fontSize: '0.82rem', color: '#5c3030', fontWeight: 600, marginBottom: '6px' }}>
+                      Creating {bulkProgress.done} of {bulkProgress.total}…
+                    </div>
+                    <div style={{ height: '6px', background: '#ede4e4', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${(bulkProgress.done / bulkProgress.total) * 100}%`,
+                        background: '#7a1f1f',
+                        transition: 'width 0.2s'
+                      }} />
+                    </div>
+                    {bulkProgress.failed.length > 0 && (
+                      <div style={{
+                        marginTop: '10px', padding: '10px 12px', background: '#fbeae5',
+                        borderRadius: '8px', fontSize: '0.78rem', color: '#b5482f'
+                      }}>
+                        <strong>{bulkProgress.failed.length} failed:</strong>
+                        <div style={{ marginTop: '4px', maxHeight: '90px', overflowY: 'auto' }}>
+                          {bulkProgress.failed.map((f) => (
+                            <div key={f.number}>{f.number} — {f.reason}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  className="btn btn-outline"
+                  onClick={() => setBulkModalOpen(false)}
+                  disabled={isSubmitting}
+                >
+                  {bulkProgress && bulkProgress.failed.length > 0 ? 'Close' : 'Cancel'}
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleBulkCreate}
+                  disabled={isSubmitting || preview.length === 0 || newCount === 0 || !bulkForm.branchId}
+                >
+                  {isSubmitting
+                    ? <><Loader size={16} className="spin" /> Creating…</>
+                    : <>Create {newCount > 0 ? newCount : ''} Tables</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Add Table Modal */}
       {addModalOpen && (

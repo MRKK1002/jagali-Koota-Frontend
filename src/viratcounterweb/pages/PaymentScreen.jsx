@@ -16,7 +16,12 @@ const PaymentScreen = () => {
   useEffect(() => {
     if (orderData) {
       const subtotal = orderData.totalAmount || 0
-      const tax = subtotal * 0.05
+      // Calculate GST from items dynamically (respects per-item gstRate)
+      const tax = orderData.cartItems?.reduce((sum, item) => {
+        if (item.isComplimentary) return sum
+        const rate = item.gstRate || 0
+        return sum + ((item.price * item.quantity * rate) / 100)
+      }, 0) || orderData.gstAmount || 0
       const calculatedTotal = subtotal + tax
       setAmountReceived(calculatedTotal.toFixed(2))
     }
@@ -38,7 +43,12 @@ const PaymentScreen = () => {
   }
 
   const subtotal = orderData.totalAmount || 0
-  const tax = subtotal * 0.05
+  // Use per-item GST calculation (same as BillGeneration) instead of hardcoded 5%
+  const tax = orderData.cartItems?.reduce((sum, item) => {
+    if (item.isComplimentary) return sum
+    const rate = item.gstRate || 0
+    return sum + ((item.price * item.quantity * rate) / 100)
+  }, 0) || orderData.gstAmount || 0
   const total = subtotal + tax
   const change = paymentMethod === "cash" && amountReceived ? Math.max(0, parseFloat(amountReceived) - total) : 0
 

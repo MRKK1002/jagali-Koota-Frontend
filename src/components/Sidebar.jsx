@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import hotelViratLogo from "../assets/logo4.jpeg"
+import { canViewModule, getModuleKeyForPath } from "../utils/usePermissions"
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -20,7 +21,10 @@ import {
   Calendar,
   MessageSquare,
   QrCode,
+  BarChart2,
+  Shield,
   Image as ImageIcon,
+  Activity,
 } from "lucide-react"
 
 const Sidebar = ({ collapsed, setCollapsed }) => {
@@ -56,6 +60,7 @@ useEffect(() => {
     // { path: "/admin/orders", name: "Online Orders", icon: <ShoppingCart size={20} /> },
     // { path: "/admin/user-orders", name: "User Orders", icon: <ShoppingCart size={20} /> },
     { path: "/admin/categorized-orders", name: "Categorized Orders", icon: <ShoppingCart size={20} /> },
+    { path: "/admin/sales-reports", name: "Sales Reports", icon: <BarChart2 size={20} /> },
     // { path: "/admin/staff-orders", name: "Staff Orders", icon: <Receipt size={20} /> },
     // { path: "/admin/payments", name: "Payments", icon: <CreditCard size={20} /> },
     // { path: "/admin/staff-payment", name: "Staff Payments", icon: <CreditCard size={20}/>},
@@ -74,6 +79,8 @@ useEffect(() => {
     // Membership Section
     { path: "/admin/members", name: "Members", icon: <Users size={20} /> },
     { path: "/admin/events", name: "Events", icon: <Calendar size={20} /> },
+    { path: "/admin/sports", name: "Sports & Activities", icon: <Activity size={20} /> },
+    { path: "/admin/affiliated-members", name: "Affiliated Members", icon: <Users size={20} /> },
     { path: "/admin/gallery", name: "Gallery", icon: <ImageIcon size={20} /> },
     // { path: "/admin/member-orders", name: "Member Orders", icon: <ShoppingCart size={20} /> },
 
@@ -83,6 +90,7 @@ useEffect(() => {
      { path: "/admin/servers", name: "Servers / Waiters", icon: <Users size={20} /> },
      { path: "/admin/purchase-users", name: "Purchase Users", icon: <Users size={20} /> },
      { path: "/admin/category-access", name: "Category Access", icon: <KeyRound size={20} /> },
+     { path: "/admin/module-access", name: "Module Access", icon: <Shield size={20} /> },
      // { path: "/admin/receptionist-access", name: "Receptionist Access", icon: <KeyRound size={20} /> },
     // { path: "/admin/coupons", name: "Coupons", icon: <Ticket size={20} /> },
     { path: "/admin/help-support", name: "Help & Support", icon: <HelpCircle size={20} /> },
@@ -94,6 +102,9 @@ useEffect(() => {
     localStorage.removeItem("isAuthenticated")
     localStorage.removeItem("userData")
     localStorage.removeItem("authToken")
+    localStorage.removeItem("adminAccessUser")
+    localStorage.removeItem("adminAccessToken")
+    localStorage.removeItem("userType")
     // Redirect to login
     navigate("/login")
   }
@@ -119,7 +130,11 @@ useEffect(() => {
 
       <nav className="sidebar-nav">
         <ul>
-          {menuItems.map((item) => (
+          {menuItems.filter((item) => {
+            const moduleKey = getModuleKeyForPath(item.path)
+            if (!moduleKey) return true // Non-module pages (Help, About, Terms) always show
+            return canViewModule(moduleKey)
+          }).map((item) => (
             <li key={item.path}>
               <Link
                 to={item.path}

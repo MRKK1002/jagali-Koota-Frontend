@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { Search, Plus, Edit, Trash2, Filter, ImageIcon, AlertCircle, Check } from "lucide-react"
 import { fetchDualBackend } from "../utils/apiHelpers"
+import { hasPermission } from "../utils/usePermissions"
 
 // Helper function to get the correct image URL
 const getImageUrl = (imagePath, bustCache = false) => {
@@ -703,10 +704,12 @@ const Categories = () => {
       <div className="page-header">
         <h1>Categories</h1>
         <div className="header-actions">
+          {hasPermission("categories", "edit") && (
           <button className="btn btn-primary" onClick={handleAddClick}>
             <Plus size={16} />
             <span>Add Category</span>
           </button>
+          )}
         </div>
       </div>
 
@@ -768,6 +771,7 @@ const Categories = () => {
                 <th>Image</th>
                 <th>Name</th>
                 <th>Branch</th>
+                <th>GST</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -813,14 +817,19 @@ const Categories = () => {
                   </td>
                   <td>{category.name}</td>
                   <td>{getBranchName(category)}</td>
+                  <td>{category.gstRate || 0}%</td>
                   <td>
                     <div className="action-buttons">
+                      {hasPermission("categories", "edit") && (
                       <button className="action-btn edit" onClick={() => handleEditClick(category)}>
                         <Edit size={14} />
                       </button>
+                      )}
+                      {hasPermission("categories", "delete") && (
                       <button className="action-btn delete" onClick={() => handleDeleteClick(category)}>
                         <Trash2 size={14} />
                       </button>
+                      )}
                     </div>
                   </td>
                 </tr>

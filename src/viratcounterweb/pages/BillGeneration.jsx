@@ -5,6 +5,7 @@ import counterApi from "../services/counterApi"
 import { offlineQueue } from "../services/offlineQueue"
 import { syncManager } from "../services/syncManager"
 import { localCache } from "../services/localCache"
+import { businessDateKey } from "../services/businessDay"
 import hotelViratLogo from "../../assets/logo4.jpeg"
 import { Tag, Printer, Settings, Gift, ArrowLeft, ClipboardList, TableProperties, Calendar, ReceiptText, Pencil, CheckCircle, Loader2 } from "lucide-react"
 
@@ -55,13 +56,8 @@ const getCategoryName = (customerData, preSelectedCategory) => {
 // Local-first: generates instantly from localStorage, works offline.
 // Seeded from server on app init so numbers continue from where server left off.
 
-const _todayDateKey = () => {
-  const now = new Date()
-  const day = String(now.getDate()).padStart(2, '0')
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const year = String(now.getFullYear()).slice(-2)
-  return `${day}-${month}-${year}`
-}
+// Business day (3 AM cutoff), not calendar day — see services/businessDay.js
+const _todayDateKey = () => businessDateKey()
 
 const _incrementLocalCounter = async (storageKey) => {
   const lockKey = `${storageKey}-lock`
@@ -247,6 +243,13 @@ const BillGeneration = () => {
   const [complimentaryReason, setComplimentaryReason] = useState("")
   const [showComplimentaryPopup, setShowComplimentaryPopup] = useState(false)
 
+  // Non-chargeable state — internal consumption (staff meal, tasting, wastage).
+  // Separate from complimentary, which is a customer-facing give-away.
+  const [isNonChargeable, setIsNonChargeable] = useState(false)
+  const [nonChargeableReason, setNonChargeableReason] = useState("")
+  const [nonChargeableType, setNonChargeableType] = useState("staff")
+  const [showNonChargeablePopup, setShowNonChargeablePopup] = useState(false)
+
   // Member Wallet state
   const [memberDetails, setMemberDetails] = useState(null)
   const [loadingMember, setLoadingMember] = useState(false)
@@ -385,7 +388,21 @@ const BillGeneration = () => {
         }
         return
       }
-      
+
+      // Alt+N toggles non-chargeable (internal consumption)
+      if (event.altKey && event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        // A bill is either complimentary or non-chargeable, never both
+        if (isComplimentary) return
+        if (isNonChargeable) {
+          setIsNonChargeable(false)
+          setNonChargeableReason("")
+        } else {
+          setShowNonChargeablePopup(true)
+        }
+        return
+      }
+
       // Check if Enter key is pressed
       if (event.key === 'Enter') {
         // Don't trigger if user is typing in an input field
@@ -395,7 +412,7 @@ const BillGeneration = () => {
         }
 
         // Don't trigger if discount popup is open
-        if (showDiscountPopup || showComplimentaryPopup) {
+        if (showDiscountPopup || showComplimentaryPopup || showNonChargeablePopup) {
           // console.log('🚫 Enter key blocked - popup is open')
           return
         }
@@ -505,7 +522,7 @@ const BillGeneration = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyPress)
     }
-  }, [printing, cartItems, showDiscountPopup, showComplimentaryPopup, appliedDiscount, isComplimentary]) // Re-run if discount or complimentary state changes
+  }, [printing, cartItems, showDiscountPopup, showComplimentaryPopup, showNonChargeablePopup, appliedDiscount, isComplimentary, isNonChargeable]) // Re-run if discount, complimentary or non-chargeable state changes
 
   // All function declarations must come before any return statements
   const handleWalletDeduction = async () => {
@@ -558,6 +575,7 @@ const BillGeneration = () => {
           },
           body: JSON.stringify({
             orderId: orderData.existingOrderId || (orderData.existingOrderIds && orderData.existingOrderIds[0]),
+            orderIds: orderData.existingOrderIds || (orderData.existingOrderId ? [orderData.existingOrderId] : []),
             memberPhone: memberDetails.phone,
             amount: totalAmount
           })
@@ -680,7 +698,8 @@ const BillGeneration = () => {
           totalAmount: total, grandTotal: total,
           discountAmount: getDiscountAmount(),
           isComplimentary, complimentaryReason,
-          paymentMethod: 'cash', paymentStatus: 'completed', orderStatus: 'completed', status: 'completed',
+          isNonChargeable, nonChargeableReason, nonChargeableType,
+          paymentMethod: 'cash', paymentStatus: isComplimentary ? 'completed' : 'billed', orderStatus: 'completed', status: 'completed',
           invoiceNumber: finalInvoiceNumber,
         }
         try {
@@ -771,8 +790,11 @@ const BillGeneration = () => {
             grandTotal: total,
             isComplimentary,
             complimentaryReason,
+            isNonChargeable,
+            nonChargeableReason,
+            nonChargeableType,
             paymentMethod: 'cash',
-            paymentStatus: 'completed',
+            paymentStatus: isComplimentary ? 'completed' : 'billed',
             orderStatus: 'completed',
             status: 'completed',
             invoiceNumber: finalInvoiceNumber,
@@ -897,7 +919,8 @@ const BillGeneration = () => {
             discountAmount: getDiscountAmount(),
             discount: appliedDiscount ? { type: appliedDiscount.type, value: appliedDiscount.value, amount: getDiscountAmount(), remark: appliedDiscount.remark } : null,
             isComplimentary, complimentaryReason,
-            paymentMethod: 'cash', paymentStatus: 'completed', orderStatus: 'completed', status: 'completed',
+            isNonChargeable, nonChargeableReason, nonChargeableType,
+            paymentMethod: 'cash', paymentStatus: isComplimentary ? 'completed' : 'billed', orderStatus: 'completed', status: 'completed',
             invoiceNumber: finalInvoiceNumber,
             existingOrderIds: [orderData.existingOrderId],
           }
@@ -1017,8 +1040,11 @@ const BillGeneration = () => {
           grandTotal: total,
           isComplimentary,
           complimentaryReason,
+            isNonChargeable,
+            nonChargeableReason,
+            nonChargeableType,
           paymentMethod: 'cash',
-          paymentStatus: 'completed',
+          paymentStatus: isComplimentary ? 'completed' : 'billed',
           orderStatus: 'completed',
           status: 'completed',
           invoiceNumber: finalInvoiceNumber
@@ -2260,6 +2286,73 @@ const BillGeneration = () => {
           )}
         </div>
 
+        {/* Non-Chargeable Controls — internal consumption, kept visually distinct
+            from the complimentary block above so the two aren't confused. */}
+        <div style={{
+          background: isNonChargeable ? '#eef5f7' : '#f8fafc',
+          padding: '16px',
+          borderRadius: '8px',
+          border: `2px solid ${isNonChargeable ? '#3f5d6b' : '#e2e8f0'}`,
+          marginBottom: '16px'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: isNonChargeable ? '12px' : '0'
+          }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: isComplimentary ? 'not-allowed' : 'pointer',
+              fontSize: '1rem',
+              fontWeight: '600',
+              opacity: isComplimentary ? 0.45 : 1,
+              color: isNonChargeable ? '#3f5d6b' : '#374151'
+            }}>
+              <input
+                type="checkbox"
+                checked={isNonChargeable}
+                disabled={isComplimentary}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setShowNonChargeablePopup(true)
+                  } else {
+                    setIsNonChargeable(false)
+                    setNonChargeableReason("")
+                  }
+                }}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              🍽️ Non-Chargeable
+            </label>
+            <span style={{ fontSize: '0.875rem', color: '#6b7280', fontStyle: 'italic' }}>
+              (Alt+N) — staff meal, tasting, wastage
+            </span>
+          </div>
+
+          {isComplimentary && (
+            <div style={{ fontSize: '0.8rem', color: '#92400e' }}>
+              Already marked complimentary — a bill can only be one or the other.
+            </div>
+          )}
+
+          {isNonChargeable && nonChargeableReason && (
+            <div style={{
+              fontSize: '0.875rem',
+              color: '#3f5d6b',
+              background: '#f7fbfc',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #cfe0e6'
+            }}>
+              <strong style={{ textTransform: 'capitalize' }}>{nonChargeableType}</strong>
+              {' — '}<span style={{ fontStyle: 'italic' }}>{nonChargeableReason}</span>
+            </div>
+          )}
+        </div>
+
         {/* Print Error/Success Message */}
         {printError && (
           <div style={{ 
@@ -2282,101 +2375,124 @@ const BillGeneration = () => {
         {/* Member Wallet Payment Section */}
         {orderData?.serverName === 'Member App' && (
           <div style={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '12px',
-            padding: '20px',
+            background: '#fff',
+            borderRadius: '14px',
+            padding: '0',
             marginBottom: '16px',
             marginTop: '16px',
-            color: 'white',
-            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+            border: '1px solid #e8e0d8',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+            overflow: 'hidden'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '28px' }}>💳</div>
+            {/* Header strip */}
+            <div style={{
+              background: 'linear-gradient(135deg, #5b2c2c 0%, #7a1f1f 100%)',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              color: 'white'
+            }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '10px',
+                background: 'rgba(255,255,255,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '20px'
+              }}>💳</div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', letterSpacing: '0.3px' }}>
                   Member App Order
                 </h3>
-                <p style={{ margin: '4px 0 0 0', fontSize: '13px', opacity: 0.9 }}>
+                <p style={{ margin: '2px 0 0 0', fontSize: '12px', opacity: 0.85 }}>
                   Payment via Member Wallet
                 </p>
               </div>
             </div>
 
             {loadingMember ? (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
+              <div style={{ textAlign: 'center', padding: '30px', color: '#7a6b5a' }}>
                 <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-                <div style={{ fontSize: '14px', marginTop: '8px' }}>Loading member details...</div>
+                <div style={{ fontSize: '13px', marginTop: '8px' }}>Loading member details...</div>
               </div>
             ) : memberDetails ? (
-              <>
+              <div style={{ padding: '18px 20px' }}>
+                {/* Member info grid */}
                 <div style={{
-                  background: 'rgba(255, 255, 255, 0.15)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  marginBottom: '16px'
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px',
+                  padding: '14px 16px',
+                  background: '#faf8f6',
+                  borderRadius: '10px',
+                  border: '1px solid #f0ebe5',
+                  marginBottom: '14px'
                 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px' }}>
-                    <div>
-                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Member Name</div>
-                      <div style={{ fontWeight: '600' }}>{memberDetails.name}</div>
-                    </div>
-                    <div>
-                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Member ID</div>
-                      <div style={{ fontWeight: '600' }}>{memberDetails.memberNumber}</div>
-                    </div>
-                    <div>
-                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Phone</div>
-                      <div style={{ fontWeight: '600' }}>{memberDetails.phone}</div>
-                    </div>
-                    <div>
-                      <div style={{ opacity: 0.8, fontSize: '12px', marginBottom: '4px' }}>Membership</div>
-                      <div style={{ fontWeight: '600', textTransform: 'capitalize' }}>
-                        {memberDetails.membershipType || 'Member'}
-                      </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#9a8a7a', fontWeight: '500', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Member Name</div>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#2d2118' }}>{memberDetails.name}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#9a8a7a', fontWeight: '500', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Member ID</div>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#2d2118' }}>{memberDetails.memberNumber}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#9a8a7a', fontWeight: '500', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Phone</div>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#2d2118' }}>{memberDetails.phone}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#9a8a7a', fontWeight: '500', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Membership</div>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#2d2118', textTransform: 'capitalize' }}>
+                      {memberDetails.membershipType || 'Member'}
                     </div>
                   </div>
                 </div>
 
+                {/* Wallet balance */}
                 <div style={{
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
+                  background: memberDetails.walletBalance >= total
+                    ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+                    : 'linear-gradient(135deg, #fef2f2 0%, #fde8e8 100%)',
+                  borderRadius: '10px',
                   padding: '16px',
-                  marginBottom: '16px',
-                  textAlign: 'center'
+                  marginBottom: '14px',
+                  textAlign: 'center',
+                  border: memberDetails.walletBalance >= total
+                    ? '1px solid #bbf7d0'
+                    : '1px solid #fecaca'
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.9, marginBottom: '8px' }}>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '6px', fontWeight: '500' }}>
                     Current Wallet Balance
                   </div>
-                  <div style={{ fontSize: '32px', fontWeight: '700' }}>
+                  <div style={{
+                    fontSize: '28px', fontWeight: '800',
+                    color: memberDetails.walletBalance >= total ? '#16a34a' : '#dc2626'
+                  }}>
                     ₹{(memberDetails.walletBalance || 0).toFixed(2)}
                   </div>
                   {memberDetails.walletBalance < total && (
                     <div style={{
-                      marginTop: '8px',
-                      fontSize: '13px',
-                      background: 'rgba(239, 68, 68, 0.9)',
-                      padding: '8px 12px',
-                      borderRadius: '6px'
+                      marginTop: '8px', fontSize: '12px', fontWeight: '600',
+                      color: '#dc2626', background: '#fff1f1',
+                      padding: '6px 12px', borderRadius: '6px', display: 'inline-block'
                     }}>
-                      ⚠️ Insufficient Balance (Short by ₹{(total - memberDetails.walletBalance).toFixed(2)})
+                      Insufficient — short by ₹{(total - memberDetails.walletBalance).toFixed(2)}
                     </div>
                   )}
                 </div>
 
+                {/* Deduct button */}
                 <button
                   onClick={handleWalletDeduction}
                   disabled={walletDeducting || memberDetails.walletBalance < total}
                   style={{
                     width: '100%',
-                    padding: '14px',
-                    fontSize: '16px',
+                    padding: '13px',
+                    fontSize: '15px',
                     fontWeight: '700',
                     background: memberDetails.walletBalance >= total 
-                      ? 'rgba(255, 255, 255, 0.95)' 
-                      : 'rgba(255, 255, 255, 0.3)',
-                    color: memberDetails.walletBalance >= total ? '#667eea' : 'rgba(255, 255, 255, 0.6)',
+                      ? '#7a1f1f' 
+                      : '#e5e7eb',
+                    color: memberDetails.walletBalance >= total ? '#fff' : '#9ca3af',
                     border: 'none',
-                    borderRadius: '8px',
+                    borderRadius: '10px',
                     cursor: memberDetails.walletBalance >= total ? 'pointer' : 'not-allowed',
                     display: 'flex',
                     alignItems: 'center',
@@ -2390,12 +2506,12 @@ const BillGeneration = () => {
                   ) : memberDetails.walletBalance >= total ? (
                     <>💳 Deduct ₹{total.toFixed(2)} from Wallet</>
                   ) : (
-                    <>❌ Insufficient Balance</>
+                    <>Insufficient Balance</>
                   )}
                 </button>
-              </>
+              </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '20px', opacity: 0.9 }}>
+              <div style={{ textAlign: 'center', padding: '24px', color: '#9a8a7a', fontSize: '14px' }}>
                 ⚠️ Member details not available
               </div>
             )}
@@ -2879,6 +2995,116 @@ const BillGeneration = () => {
                 }}
               >
                 <span style={{display:'flex',alignItems:'center',gap:'6px'}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg> Mark Complimentary</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Non-Chargeable Popup — asks for the reason type and a note */}
+      {showNonChargeablePopup && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.55)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 10002, padding: '20px'
+        }}>
+          <div style={{
+            background: 'white', borderRadius: '14px', padding: '26px',
+            width: '100%', maxWidth: '440px', boxShadow: '0 24px 48px rgba(0,0,0,0.25)'
+          }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1.15rem', color: '#1f2937' }}>
+              🍽️ Non-Chargeable Bill
+            </h3>
+            <p style={{ margin: '0 0 18px', fontSize: '0.85rem', color: '#6b7280' }}>
+              Internal consumption — this will not count towards sales.
+            </p>
+
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+              Type
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+              {[
+                { v: 'staff', l: 'Staff Meal' },
+                { v: 'management', l: 'Management' },
+                { v: 'tasting', l: 'Tasting' },
+                { v: 'wastage', l: 'Wastage' },
+                { v: 'other', l: 'Other' },
+              ].map((opt) => (
+                <button
+                  key={opt.v}
+                  onClick={() => setNonChargeableType(opt.v)}
+                  style={{
+                    padding: '8px 14px', borderRadius: '8px', cursor: 'pointer',
+                    fontSize: '0.82rem', fontWeight: 700,
+                    border: `2px solid ${nonChargeableType === opt.v ? '#3f5d6b' : '#e5e7eb'}`,
+                    background: nonChargeableType === opt.v ? '#3f5d6b' : 'white',
+                    color: nonChargeableType === opt.v ? 'white' : '#374151',
+                  }}
+                >
+                  {opt.l}
+                </button>
+              ))}
+            </div>
+
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+              Reason
+            </label>
+            <textarea
+              autoFocus
+              rows={2}
+              value={nonChargeableReason}
+              onChange={(e) => setNonChargeableReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  if (nonChargeableReason.trim()) {
+                    setIsNonChargeable(true)
+                    setShowNonChargeablePopup(false)
+                  }
+                }
+                if (e.key === 'Escape') {
+                  setShowNonChargeablePopup(false)
+                  setNonChargeableReason("")
+                }
+              }}
+              placeholder="e.g. Kitchen staff dinner"
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: '8px',
+                border: '1.5px solid #d1d5db', fontSize: '0.9rem',
+                marginBottom: '18px', resize: 'vertical', fontFamily: 'inherit'
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => {
+                  setShowNonChargeablePopup(false)
+                  setNonChargeableReason("")
+                }}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '8px',
+                  border: '1.5px solid #e5e7eb', background: 'white',
+                  color: '#4b5563', fontWeight: 600, cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (nonChargeableReason.trim()) {
+                    setIsNonChargeable(true)
+                    setShowNonChargeablePopup(false)
+                  }
+                }}
+                disabled={!nonChargeableReason.trim()}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '8px', border: 'none',
+                  background: nonChargeableReason.trim() ? '#3f5d6b' : '#d1d5db',
+                  color: 'white', fontWeight: 700,
+                  cursor: nonChargeableReason.trim() ? 'pointer' : 'not-allowed'
+                }}
+              >
+                Mark Non-Chargeable
               </button>
             </div>
           </div>

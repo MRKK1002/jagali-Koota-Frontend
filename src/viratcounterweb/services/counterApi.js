@@ -160,6 +160,38 @@ class CounterApiService {
     return this.request(`/category?branchId=${branchId}`)
   }
 
+  // Subcategories
+  async getSubcategories(branchId) {
+    return this.request(`/subcategory?branchId=${branchId}`)
+  }
+
+  // ── Billing Session (day open / close, Z-Report) ──────────────────────────
+  async getBillingSession(branchId, date) {
+    const params = new URLSearchParams({ branchId })
+    if (date) params.append('date', date)
+    return this.request(`/billing-session/current?${params.toString()}`)
+  }
+
+  async previewCloseBilling(branchId, date) {
+    const params = new URLSearchParams({ branchId })
+    if (date) params.append('date', date)
+    return this.request(`/billing-session/preview-close?${params.toString()}`)
+  }
+
+  async closeBilling(payload) {
+    return this.request('/billing-session/close', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async reopenBilling(payload) {
+    return this.request('/billing-session/reopen', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   // Tables
   async getTables(branchId) {
     return this.request(`/table?branchId=${branchId}`)

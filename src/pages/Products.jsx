@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Search, Plus, Edit, Trash2, Filter, ImageIcon, AlertCircle, Check } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Filter, ImageIcon, AlertCircle, Check, X } from 'lucide-react';
 import { fetchDualBackend } from "../utils/apiHelpers";
+import { hasPermission } from "../utils/usePermissions";
 
 // Helper function to get correct image URL - Check local first, then production
 const getImageUrl = (imagePath) => {
@@ -85,6 +86,7 @@ const ProductModal = ({ product, onClose, onSave, branches, categories, selected
     subcategoryId: typeof product?.subcategoryId === 'object' ? product?.subcategoryId?._id || "" : product?.subcategoryId || "",
     price: product?.price || "", // Single price field
     gstRate: product?.gstRate || 0, // Single GST rate field
+    foodType: product?.foodType || "", // veg | non-veg | egg
     image: null,
     subscriptionEnabled: product?.subscriptionEnabled || false,
     subscriptionPlans: product?.subscriptionPlans || [],
@@ -128,6 +130,7 @@ const ProductModal = ({ product, onClose, onSave, branches, categories, selected
         subcategoryId: typeof product.subcategoryId === 'object' ? product.subcategoryId?._id || "" : product.subcategoryId || "",
         price: product.price || "", // Single price
         gstRate: product.gstRate || 0, // Single GST rate
+        foodType: product.foodType || "", // veg | non-veg | egg
         image: null,
         subscriptionEnabled: product.subscriptionEnabled || false,
         subscriptionPlans: product.subscriptionPlans || [],
@@ -327,6 +330,14 @@ const ProductModal = ({ product, onClose, onSave, branches, categories, selected
       return;
     }
 
+    // Subcategory is optional — skip validation
+
+    if (!formData.foodType) {
+      setError("Please select a food type (Veg, Non-Veg or Egg)");
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       await onSave(formData);
       onClose();
@@ -426,7 +437,7 @@ const ProductModal = ({ product, onClose, onSave, branches, categories, selected
                 disabled={!formData.categoryId}
                 style={!formData.categoryId ? { backgroundColor: '#f3f4f6', cursor: 'not-allowed' } : {}}
               >
-                <option value="">Select Subcategory (Optional)</option>
+                <option value="">None (No Subcategory)</option>
                 {filteredSubcategories.map((subcategory) => (
                   <option key={subcategory._id} value={subcategory._id}>
                     {subcategory.name}
@@ -438,6 +449,47 @@ const ProductModal = ({ product, onClose, onSave, branches, categories, selected
                   Please select a category first
                 </p>
               )}
+            </div>
+
+            {/* Food Type */}
+            <div className="form-group">
+              <label className="form-label">Food Type *</label>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {[
+                  { value: 'veg', label: 'Veg', color: '#16a34a' },
+                  { value: 'non-veg', label: 'Non-Veg', color: '#dc2626' },
+                  { value: 'egg', label: 'Egg', color: '#d97706' },
+                  { value: 'sea-food', label: 'Sea Food', color: '#0891b2' },
+                  { value: 'chef-special', label: 'Chef Special', color: '#7c3aed' },
+                  { value: 'spice-level', label: 'Spice Level', color: '#ea580c' },
+                  { value: 'gluten-free', label: 'Gluten Free', color: '#65a30d' },
+                ].map((opt) => {
+                  const active = formData.foodType === opt.value
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      onClick={() => setFormData((prev) => ({ ...prev, foodType: opt.value }))}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        padding: '8px 16px', borderRadius: '8px', cursor: 'pointer',
+                        fontWeight: 600, fontSize: '14px',
+                        border: `2px solid ${active ? opt.color : '#d1d5db'}`,
+                        background: active ? opt.color : 'white',
+                        color: active ? 'white' : '#374151',
+                      }}
+                    >
+                      <span style={{
+                        width: '12px', height: '12px', borderRadius: '2px',
+                        border: `2px solid ${active ? 'white' : opt.color}`,
+                        background: active ? 'white' : 'transparent',
+                        display: 'inline-block',
+                      }} />
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
 
@@ -566,30 +618,9 @@ const ProductModal = ({ product, onClose, onSave, branches, categories, selected
               <p style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>
                 {product?.image && !formData.image 
                   ? "Upload a new image to replace the current one (optional)" 
-                  : "Upload an image for this menu item (JPEG, PNG, GIF, WEBP, AVIF up to 5MB)"}
+                  : "Upload an image for this menu item (JPEG, PNG, GIF, WEBP, AVIF up to 1MB)"}
               </p>
             </div>
-
-            {/* Subscription Enabled Checkbox */}
-            <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  name="subscriptionEnabled"
-                  checked={formData.subscriptionEnabled}
-                  onChange={(e) => setFormData({ ...formData, subscriptionEnabled: e.target.checked })}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>
-                  Enable Subscription for this item
-                </span>
-              </label>
-              <p style={{ marginTop: '4px', marginLeft: '26px', fontSize: '12px', color: '#6b7280' }}>
-                Allow customers to subscribe to this menu item for regular delivery
-              </p>
-            </div>
-
-            {/* Subscription Details - Only show when subscription is enabled */}
             {formData.subscriptionEnabled && (
               <div style={{ 
                 marginTop: '16px', 
@@ -1086,6 +1117,7 @@ const Products = () => {
       if (selectedCategory) params.append('categoryId', selectedCategory);
       if (selectedSubcategory) params.append('subcategoryId', selectedSubcategory);
       if (searchQuery && searchQuery.trim()) params.append('search', searchQuery.trim());
+      params.append('includeDisabled', 'true'); // Admin sees all items including disabled
       
       const url = `/menu?${params.toString()}`;
       console.log('📋 Fetching products with URL:', url);
@@ -1214,6 +1246,9 @@ const Products = () => {
       // Send single price and GST rate (new format)
       formDataObj.append("price", formData.price);
       formDataObj.append("gstRate", formData.gstRate);
+
+      // Food type (veg | non-veg | egg)
+      formDataObj.append("foodType", formData.foodType);
       
       // Keep backward compatibility with old format (for old backend/records)
       formDataObj.append("menuTypes", JSON.stringify(["Regular"]));
@@ -1322,6 +1357,34 @@ const Products = () => {
     }
   };
 
+  // Toggle disable/enable for today
+  const handleToggleDisable = async (product) => {
+    const isDisabled = product.disabledUntil && new Date(product.disabledUntil) > new Date()
+    const endpoint = isDisabled
+      ? `/menu/${product._id}/enable`
+      : `/menu/${product._id}/disable-today`
+    try {
+      await fetchDualBackend(endpoint, { method: "PUT" })
+      // Update local state
+      const updatedProducts = products.map((p) =>
+        p._id === product._id
+          ? { ...p, disabledUntil: isDisabled ? null : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
+          : p
+      )
+      setProducts(updatedProducts)
+      setFilteredProducts(filteredProducts.map((p) =>
+        p._id === product._id
+          ? { ...p, disabledUntil: isDisabled ? null : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
+          : p
+      ))
+      setSuccessMessage(isDisabled ? `"${product.name || product.itemName}" enabled` : `"${product.name || product.itemName}" disabled for today`)
+      setTimeout(() => setSuccessMessage(""), 3000)
+    } catch (err) {
+      setError(err.message || "Failed to toggle item")
+      setTimeout(() => setError(""), 3000)
+    }
+  }
+
   const getCategoryName = (categoryId, populatedCategory) => {
     if (populatedCategory && populatedCategory.name) {
       return populatedCategory.name;
@@ -1410,10 +1473,12 @@ const Products = () => {
       <div className="page-header">
         <h1>Products</h1>
         <div className="header-actions">
+          {hasPermission("menu", "edit") && (
           <button className="btn btn-primary" onClick={handleAddClick}>
             <Plus size={16} />
             <span>Add Product</span>
           </button>
+          )}
         </div>
       </div>
 
@@ -1858,6 +1923,11 @@ const Products = () => {
                     )}
                     {product.name || product.itemName || product.categoryId?.name || 'Unnamed Product'}
                   </h3>
+                  {product.disabledUntil && new Date(product.disabledUntil) > new Date() && (
+                    <span style={{ display: 'inline-block', background: '#fef2f2', color: '#dc2626', fontSize: '0.68rem', fontWeight: '700', padding: '2px 6px', borderRadius: '4px', border: '1px solid #fca5a5', marginBottom: '4px' }}>
+                      DISABLED TODAY
+                    </span>
+                  )}
                   <p className="grid-item-subtitle">
                     {getCategoryName(product.categoryId, product.categoryId)}
                   </p>
@@ -1897,12 +1967,37 @@ const Products = () => {
                   )}
                   <div className="grid-item-footer">
                     <div className="grid-item-actions" style={{ marginLeft: 'auto' }}>
+                      {hasPermission("menu", "edit") && (
+                        product.disabledUntil && new Date(product.disabledUntil) > new Date() ? (
+                          <button
+                            className="action-btn"
+                            onClick={() => handleToggleDisable(product)}
+                            title="Enable item"
+                            style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a' }}
+                          >
+                            <Check size={14} />
+                          </button>
+                        ) : (
+                          <button
+                            className="action-btn"
+                            onClick={() => handleToggleDisable(product)}
+                            title="Disable for today"
+                            style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626' }}
+                          >
+                            <X size={14} />
+                          </button>
+                        )
+                      )}
+                      {hasPermission("menu", "edit") && (
                       <button className="action-btn edit" onClick={() => handleEditClick(product)}>
                         <Edit size={14} />
                       </button>
+                      )}
+                      {hasPermission("menu", "delete") && (
                       <button className="action-btn delete" onClick={() => handleDeleteClick(product)}>
                         <Trash2 size={14} />
                       </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2094,10 +2189,7 @@ const Products = () => {
     </div>
   );
 };
-
 export default Products;
-
-{/* Add CSS for spinner animation */}
 <style jsx>{`
   @keyframes spin {
     0% { transform: rotate(0deg); }

@@ -26,18 +26,49 @@ const Login = () => {
 
     try {
       if (loginType === "admin") {
-        const response = await axios.post(`${API_BASE_URL}/admin-auth/login`, {
-          email,
-          password,
-        })
+        // Try admin login first
+        let loginSuccess = false
+        try {
+          const response = await axios.post(`${API_BASE_URL}/admin-auth/login`, {
+            email,
+            password,
+          })
 
-        const { token } = response.data
+          const { token } = response.data
 
-        localStorage.setItem("authToken", token)
-        localStorage.setItem("isAuthenticated", "true")
-        localStorage.setItem("userType", "admin")
+          localStorage.setItem("authToken", token)
+          localStorage.setItem("isAuthenticated", "true")
+          localStorage.setItem("userType", "admin")
+          // Clear any module-access data (super admin via legacy login)
+          localStorage.removeItem("adminAccessUser")
+          localStorage.removeItem("adminAccessToken")
 
-        navigate("/admin/branches")
+          navigate("/admin/branches")
+          loginSuccess = true
+        } catch (adminErr) {
+          // Admin login failed — try module-access login
+          try {
+            const response = await axios.post(`${API_BASE_URL}/admin-access/login`, {
+              email,
+              password,
+            })
+
+            const { token, user } = response.data
+
+            localStorage.setItem("authToken", token)
+            localStorage.setItem("isAuthenticated", "true")
+            localStorage.setItem("userType", "module-user")
+            localStorage.setItem("adminAccessUser", JSON.stringify(user))
+            localStorage.setItem("adminAccessToken", token)
+
+            navigate("/admin/branches")
+            loginSuccess = true
+          } catch (moduleErr) {
+            // Both failed — show original admin error
+            throw adminErr
+          }
+        }
+        if (loginSuccess) return
       } else if (loginType === "category") {
         const response = await axios.post(`${API_BASE_URL}/category-access/login`, {
           username,
