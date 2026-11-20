@@ -5,6 +5,7 @@ import thermalPrinter from "../services/thermalPrinter"
 import { offlineQueue } from "../services/offlineQueue"
 import { syncManager } from "../services/syncManager"
 import { localCache } from "../services/localCache"
+import { businessDateKey } from "../services/businessDay"
 import { BarChart2, RefreshCw, X, ClipboardList, Gift } from "lucide-react"
 
 /**
@@ -18,7 +19,7 @@ import { BarChart2, RefreshCw, X, ClipboardList, Gift } from "lucide-react"
  */
 
 // Admin password for order cancellation
-const ADMIN_PASSWORD = "admin@123"
+const ADMIN_PASSWORD = "Jk$#@!"
 
 // Helper function to get stored category from localStorage
 const getStoredCategory = () => {
@@ -81,13 +82,9 @@ const handleSwitchCategory = () => {
 // so it always continues from where the server left off.
 // The actual server counter advances when the KOT/bill syncs via createOrder.
 
-const _todayDateKey = () => {
-  const now = new Date()
-  const day = String(now.getDate()).padStart(2, '0')
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const year = String(now.getFullYear()).slice(-2)
-  return `${day}-${month}-${year}`
-}
+// Counter key for the current BUSINESS day (3 AM cutoff), not the calendar day.
+// See services/businessDay.js for why.
+const _todayDateKey = () => businessDateKey()
 
 const _incrementLocalCounter = async (storageKey) => {
   const lockKey = `${storageKey}-lock`
@@ -114,14 +111,12 @@ const _incrementLocalCounter = async (storageKey) => {
   }
   return null // fallback: caller uses timestamp
 }
-
 const getNextKOTNumber = async (_branchId) => {
   const key = `kot-counter-${_todayDateKey()}`
   const counter = await _incrementLocalCounter(key)
   if (counter === null) return `KOT-T${Date.now().toString().slice(-6)}`
   return `KOT-${String(counter).padStart(3, '0')}`
 }
-
 const getNextBillNumber = async (_branchId, category) => {
   if (!category) category = 'default'
   const key = `unified-bill-counter-${category}-${_todayDateKey()}`
@@ -130,7 +125,6 @@ const getNextBillNumber = async (_branchId, category) => {
   return String(counter).padStart(3, '0')
 }
 
-// Helper function to get correct image URL - Check local first, then production
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
 
@@ -159,8 +153,6 @@ const getImageUrl = (imagePath) => {
 
   return imageUrl;
 };
-
-// Get production fallback URL (for old images that exist on production)
 const getProdImageUrl = (imagePath) => {
   if (!imagePath) return null;
 
@@ -200,7 +192,6 @@ const getProdImageUrl = (imagePath) => {
 
   return imageUrl;
 };
-
 const MenuScreen = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -238,6 +229,13 @@ const MenuScreen = () => {
     return validItems
   })
   const [categories, setCategories] = useState(["All"])
+  // Full category + subcategory objects (with _id) for the display-only filter bar.
+  // Kept separate from `categories` (name strings) so existing logic is untouched.
+  const [categoryObjects, setCategoryObjects] = useState([])
+  const [subcategories, setSubcategories] = useState([])
+  const [filterCategoryId, setFilterCategoryId] = useState(null) // null = All
+  const [filterSubcategoryId, setFilterSubcategoryId] = useState(null) // null = All
+  const [filterFoodType, setFilterFoodType] = useState(null) // null = All | 'veg' | 'non-veg' | 'egg'
   const [menuItems, setMenuItems] = useState([])
   const [allMenuItems, setAllMenuItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -257,6 +255,10 @@ const MenuScreen = () => {
   // State for saved KOTs
   const [showKOTList, setShowKOTList] = useState(false)
   const [savedKOTs, setSavedKOTs] = useState([])
+  // Monotonic token so a stale cache-first render can never overwrite a newer
+  // server render. Each loadSavedKOTs (KOT mode) bumps this; only the load that
+  // still owns the latest token is allowed to setSavedKOTs.
+  const kotLoadTokenRef = useRef(0)
   const [kotLoading, setKotLoading] = useState(false)
   const [existingKOTId, setExistingKOTId] = useState(null) // Track if we're updating an existing KOT
   const [showKOTDetailView, setShowKOTDetailView] = useState(false) // NEW: Track if showing detailed view
@@ -384,11 +386,8 @@ const MenuScreen = () => {
         const branchId = branch?._id || branch?.id
         if (branchId) {
           const categories = ['Restaurant', 'Self Service', 'Temple Meals']
-          const now = new Date()
-          const day = String(now.getDate()).padStart(2, '0')
-          const month = String(now.getMonth() + 1).padStart(2, '0')
-          const year = String(now.getFullYear()).slice(-2)
-          const dateKey = `${day}-${month}-${year}`
+          // Business day (3 AM cutoff) — must match _todayDateKey() above
+          const dateKey = _todayDateKey()
           categories.forEach(cat => {
             counterApi.request(
               `/counter-invoice/last-bill-number/${branchId}?category=${encodeURIComponent(cat)}`,
@@ -543,6 +542,30 @@ const MenuScreen = () => {
   const [cancelError, setCancelError] = useState('')
   const [cancelling, setCancelling] = useState(false)
 
+  // Settlement modal state
+  const [showSettleModal, setShowSettleModal] = useState(false)
+  const [settleOrder, setSettleOrder] = useState(null)
+  const [settleMethod, setSettleMethod] = useState('')
+  const [settleUtr, setSettleUtr] = useState('')
+  const [settling, setSettling] = useState(false)
+  const [settleError, setSettleError] = useState('')
+
+  // Billing session (day open/close + Z-Report) state
+  const [billingSession, setBillingSession] = useState(null)
+  const [showCloseBillingModal, setShowCloseBillingModal] = useState(false)
+  const [closePreview, setClosePreview] = useState(null)
+  const [cashDeclared, setCashDeclared] = useState('')
+  const [closeNotes, setCloseNotes] = useState('')
+  const [closingBilling, setClosingBilling] = useState(false)
+  const [closeBillingError, setCloseBillingError] = useState('')
+
+  // Reopen billing state
+  const [showReopenModal, setShowReopenModal] = useState(false)
+  const [reopenReason, setReopenReason] = useState('')
+  const [reopenPassword, setReopenPassword] = useState('')
+  const [reopening, setReopening] = useState(false)
+  const [reopenError, setReopenError] = useState('')
+
   // Pagination state for orders
   const [currentPage, setCurrentPage] = useState(1)
   const [ordersPerPage, setOrdersPerPage] = useState(10) // Show 10 orders per page
@@ -555,6 +578,22 @@ const MenuScreen = () => {
   const [complimentaryPassword, setComplimentaryPassword] = useState('')
   const [complimentaryError, setComplimentaryError] = useState('')
   const [processingComplimentary, setProcessingComplimentary] = useState(false)
+
+  // Non-Chargeable bill modal state
+  const [showNCModal, setShowNCModal] = useState(false)
+  const [selectedOrderForNC, setSelectedOrderForNC] = useState(null)
+  const [ncReason, setNcReason] = useState('')
+  const [ncType, setNcType] = useState('staff')
+  const [ncByName, setNcByName] = useState('')
+  const [ncPassword, setNcPassword] = useState('')
+  const [ncError, setNcError] = useState('')
+  const [processingNC, setProcessingNC] = useState(false)
+
+  // Non-Chargeable bills list state
+  const [showNCList, setShowNCList] = useState(false)
+  const [ncBills, setNCBills] = useState([])
+  const [ncListLoading, setNCListLoading] = useState(false)
+  const [selectedNCDate, setSelectedNCDate] = useState(new Date().toISOString().split('T')[0])
 
   // Split Bill state
   const [showSplitBillModal, setShowSplitBillModal] = useState(false)
@@ -707,7 +746,7 @@ const MenuScreen = () => {
   }
 
   // Split Bill: Generate bill for selected items only
-  const handleSplitBillGenerate = () => {
+  const handleSplitBillGenerate = async () => {
     const selectedIndexes = Object.keys(splitBillSelectedItems).filter(k => splitBillSelectedItems[k])
     
     if (selectedIndexes.length === 0) {
@@ -800,6 +839,9 @@ const MenuScreen = () => {
       remainingItems: remainingItems
     }
 
+    // Refuse if the business day has been closed
+    if (await isBillingClosedBlocked()) return
+
     setShowSplitBillModal(false)
     setIsNavigatingToBill(true)
     sessionStorage.setItem('isNavigatingToBill', 'true')
@@ -818,6 +860,10 @@ const MenuScreen = () => {
         // console.log('⚠️ Already navigating to bill generation, ignoring duplicate call');
         return;
       }
+
+      // Refuse if the business day has been closed
+      if (await isBillingClosedBlocked()) return
+
       setIsNavigatingToBill(true);
 
       // Show loading indicator
@@ -1310,17 +1356,19 @@ const MenuScreen = () => {
       }, 200)
     }
 
-    // Check if navigation state includes KOT refresh flag
+    // Check if navigation state includes KOT refresh flag.
+    // Two staggered reloads guard against backend write latency after billing.
+    // The load-token guard in loadSavedKOTs makes overlapping passes safe (an
+    // older pass can no longer overwrite a newer one), and the timers are
+    // cancelled on unmount so they never fire on a stale component.
+    let kotRefreshTimers = []
     if (location.state?.refreshKOTs) {
-      // Use a longer delay to ensure all database operations are complete
-      setTimeout(() => {
-        loadSavedKOTs()
-      }, 2000) // Increased delay to 2 seconds to ensure all updates are processed
+      kotRefreshTimers.push(setTimeout(() => { loadSavedKOTs() }, 2000)) // primary
+      kotRefreshTimers.push(setTimeout(() => { loadSavedKOTs() }, 5000)) // backup
+    }
 
-      // Also set up a secondary refresh after a longer delay as backup
-      setTimeout(() => {
-        loadSavedKOTs()
-      }, 5000) // 5 second backup refresh
+    return () => {
+      kotRefreshTimers.forEach(clearTimeout)
     }
   }, [customerData, navigate, preSelectedCategory, location.state]) // Added location.state to dependencies
 
@@ -1465,6 +1513,8 @@ const MenuScreen = () => {
       if (categoriesResponse) {
         const cats = categoriesResponse.categories || categoriesResponse
         if (Array.isArray(cats) && cats.length > 0) {
+          // Keep full category objects (with _id) for the filter bar
+          setCategoryObjects(cats)
           cats.forEach((cat) => {
             const categoryName = cat.name || cat.categoryName || cat.title
             if (categoryName && !categoryList.includes(categoryName)) {
@@ -1473,6 +1523,15 @@ const MenuScreen = () => {
             // Category ID filtering removed — fetch all items
           })
         }
+      }
+
+      // Fetch subcategories for the display-only filter bar (non-blocking).
+      try {
+        const subResponse = await counterApi.getSubcategories(customerData.selectedBranch._id)
+        const subs = subResponse?.subcategories || subResponse || []
+        if (Array.isArray(subs)) setSubcategories(subs)
+      } catch (subErr) {
+        console.warn('Subcategory fetch failed (filter bar will be hidden):', subErr?.message)
       }
 
       // Always fetch all items — no categoryId filter applied
@@ -1529,6 +1588,8 @@ const MenuScreen = () => {
               description: item.description || item.desc || "",
               image: imageUrl,
               categoryId: item.categoryId || item.category || null,
+              subcategoryId: item.subcategoryId || null,
+              foodType: item.foodType || null,
               menuItemNumber: item.menuItemNumber || item.number || null,
             }
           })
@@ -2399,11 +2460,22 @@ const MenuScreen = () => {
       try { branchId = JSON.parse(localStorage.getItem('selectedBranch') || '{}')._id } catch (_) {}
     }
  
+    // Claim a load token for this KOT-mode invocation. Any older invocation that
+    // resolves after this one must not overwrite the list — this prevents a stale
+    // cache pass from clobbering a fresh server result (the "2 KOTs then back to
+    // 1" bug). Sales-report mode (selectedDate set) is unaffected.
+    const myLoadToken = selectedDate ? null : (kotLoadTokenRef.current += 1)
+    const isLatestLoad = () => selectedDate != null || myLoadToken === kotLoadTokenRef.current
+
     try {
       // ── CACHE-FIRST: serve KOT list from cache immediately (KOT mode only) ──
+      // The cache is only a placeholder to avoid a blank flash. When online we
+      // still run the server pass below and let it overwrite. If the cache is
+      // stale (e.g. a KOT was just created on another device) the server pass
+      // corrects it. We never return early here while online.
       if (branchId && !selectedDate) {
         const cachedKOTs = await localCache.getPendingKOTs(branchId)
-        if (cachedKOTs.length > 0) {
+        if (cachedKOTs.length > 0 && isLatestLoad()) {
           const processedKOTs = cachedKOTs.map(order => ({
             id: order.id || order._id,
             kotNumber: order.kotNumber || `KOT-${(order.id || order._id)?.slice(-6)}`,
@@ -2420,7 +2492,7 @@ const MenuScreen = () => {
           setSavedKOTs(processedKOTs)
           setKotLoading(false)
           if (!navigator.onLine) return // offline — cache is source of truth
-          // online — continue to refresh from server in background (don't block UI)
+          // online — continue to refresh from server below (don't block UI)
         }
       }
 
@@ -2462,7 +2534,7 @@ const MenuScreen = () => {
             seenLocal.add(b.invoiceNumber)
             return true
           })
-          .filter(b => !b.isComplimentary) // exclude complimentary bills from sales report
+          .filter(b => !b.isComplimentary && !b.isNonChargeable) // exclude complimentary & non-chargeable bills from sales report
           .filter(b => {
             // Date filter: include bills saved on the selected date (local time)
             const ts = b.savedAt || b.createdAt
@@ -2534,7 +2606,7 @@ const MenuScreen = () => {
             const serverOnlyBills = serverOrders
               .filter(o => {
                 const inv = o.invoiceNumber || o.billNumber
-                if (!inv || localInvoiceNums.has(inv) || o.isComplimentary) return false
+                if (!inv || localInvoiceNums.has(inv) || o.isComplimentary || o.isNonChargeable) return false
                 // Date filter for server-only bills: use createdAt
                 const ts = o.createdAt || o.savedAt
                 if (!ts) return true
@@ -2563,6 +2635,7 @@ const MenuScreen = () => {
                   cancelledAt: serverVersion.cancelledAt,
                   cancelledBy: serverVersion.cancelledBy,
                   isComplimentary: serverVersion.isComplimentary || b.isComplimentary, // server is authoritative for complimentary
+                  isNonChargeable: serverVersion.isNonChargeable || b.isNonChargeable, // server is authoritative for non-chargeable
                   isOfflinePending: false, // server has it, not pending
                 }
               }
@@ -2579,8 +2652,8 @@ const MenuScreen = () => {
           }
         }
 
-        // Final guard: strip any complimentary bills that slipped through (e.g. from server merge)
-        allBills = allBills.filter(b => !b.isComplimentary)
+        // Final guard: strip any complimentary/non-chargeable bills that slipped through (e.g. from server merge)
+        allBills = allBills.filter(b => !b.isComplimentary && !b.isNonChargeable)
 
         // 3. Build and set sales report from merged allBills — single setSalesData call
         const activeBills = allBills.filter(b => {
@@ -2614,8 +2687,19 @@ const MenuScreen = () => {
           discountAmount: bill.discountAmount || 0,
           originalTotalAmount: bill.totalAmount || bill.grandTotal || 0,
           paymentMethod: bill.paymentMethod || 'cash',
-          orderStatus: bill.paymentStatus === 'completed' ? 'completed' : (bill.orderStatus || bill.status || 'completed'),
-          status: bill.paymentStatus === 'completed' ? 'completed' : (bill.status || 'completed'),
+          // A cancelled bill stays cancelled. Previously a 'completed'
+          // paymentStatus forced orderStatus to 'completed', which erased the
+          // cancellation and made cancelled bills look like normal sales.
+          orderStatus: (() => {
+            const ord = String(bill.orderStatus || bill.status || '').toLowerCase().trim()
+            if (ord === 'cancelled') return 'cancelled'
+            return bill.paymentStatus === 'completed' ? 'completed' : (bill.orderStatus || bill.status || 'completed')
+          })(),
+          status: (() => {
+            const st = String(bill.status || bill.orderStatus || '').toLowerCase().trim()
+            if (st === 'cancelled') return 'cancelled'
+            return bill.paymentStatus === 'completed' ? 'completed' : (bill.status || 'completed')
+          })(),
           paymentStatus: bill.paymentStatus || 'completed',
           cancellationReason: bill.cancellationReason,
           cancelledAt: bill.cancelledAt,
@@ -2773,9 +2857,14 @@ const MenuScreen = () => {
       // Filter for KOT orders (pending orders with tables)
       // Backend already filters for pending orders, just need to check for table
       const kotOrdersFiltered = kotOrders.filter(order => {
-        // Backend already filtered for paymentStatus='pending', just verify table exists
-        const hasTable = order.tableNumber && order.tableId
-        return hasTable
+        // Backend already filtered for paymentStatus='pending', just verify a table
+        // is attached. Gate on tableNumber ONLY — tableId must not be required here.
+        // KOTs created from the staff app's "Add Items" flow are saved with
+        // tableId: null (staff app passes table.id = null), so requiring tableId
+        // silently dropped those KOTs from this list while the cache-first render
+        // still showed them — the "2 KOTs then back to 1" bug. tableId is only
+        // needed for table-shift, which resolves it from the tables list anyway.
+        return !!order.tableNumber
       })
 
       // console.log('✅ KOT orders after table filter:', kotOrdersFiltered.length)
@@ -2789,7 +2878,14 @@ const MenuScreen = () => {
             id: order.id || order._id,
             kotNumber: order.kotNumber || `KOT-${(order.id || order._id)?.slice(-6)}`,
             tableNumber: order.tableNumber,
-            tableId: order.tableId, // CRITICAL FIX: Include tableId for table shift functionality
+            // Include tableId for table shift functionality. Staff-app KOTs can
+            // have tableId: null, so fall back to resolving it from the loaded
+            // tables list by table number.
+            tableId: order.tableId
+              || (() => {
+                const t = tables.find(t => t.number === order.tableNumber || t.tableNumber === order.tableNumber)
+                return t?._id || t?.id || null
+              })(),
             customerName: order.customerName || 'Walk-in Customer',
             items: order.items || [],
             totalAmount: order.totalAmount || order.grandTotal || 0,
@@ -2815,7 +2911,9 @@ const MenuScreen = () => {
           })
 
         // console.log('🔍 Setting processed KOTs for modal (after filtering zero-quantity KOTs):', processedKOTs.length)
-        setSavedKOTs(processedKOTs)
+        // Only apply if this is still the most recent KOT load — a slower/older
+        // invocation (e.g. a delayed cache pass) must not overwrite fresher data.
+        if (isLatestLoad()) setSavedKOTs(processedKOTs)
       } else {
         // console.log('🔍 Skipping KOT modal update - loading sales report for date:', selectedDate)
       }
@@ -3824,7 +3922,7 @@ const MenuScreen = () => {
               paymentStatus: order.paymentStatus,
               isOffline: order.isOffline || false,
             })).filter(kot => (kot.items || []).some(item => (item.quantity || 0) > 0))
-            setSavedKOTs(processedKOTs)
+            if (isLatestLoad()) setSavedKOTs(processedKOTs)
             setKotLoading(false)
             setSalesLoading(false)
             return
@@ -3838,7 +3936,9 @@ const MenuScreen = () => {
       }
 
       if (!selectedDate) {
-        setSavedKOTs([])
+        // Don't clear a good list produced by a newer load (or an existing list)
+        // just because this older/errored load found nothing.
+        if (isLatestLoad()) setSavedKOTs([])
       } else {
         setSalesData(null)
       }
@@ -3876,11 +3976,53 @@ const MenuScreen = () => {
       // Use loadSavedKOTs since it processes and creates sales report data
       await loadSavedKOTs(0, selectedDate)
 
+      // Refresh billing session state alongside the report
+      loadBillingSession(selectedDate)
+
     } catch (error) {
       console.error('❌ Error loading sales report:', error)
       setSalesData(null)
     } finally {
       setSalesLoading(false)
+    }
+  }
+
+  // Guard: refuse to open the bill screen when the business day is closed.
+  // Checked live against the server (not cached state) because a supervisor may
+  // have closed billing from another terminal. Returns true when billing is
+  // closed, and shows the cashier why.
+  const isBillingClosedBlocked = async () => {
+    const branchId = customerData?.selectedBranch?._id
+    if (!branchId) return false
+    try {
+      const resp = await counterApi.getBillingSession(branchId)
+      if (resp?.status === 'closed') {
+        setBillingSession(resp)
+        alert(
+          `Billing for ${resp.date} is closed.\n\n` +
+          `No new bills can be created. Reopen billing from the Sales Report to continue.`
+        )
+        return true
+      }
+      return false
+    } catch (_) {
+      // Offline or server unreachable — don't block billing on a network issue
+      return false
+    }
+  }
+
+  // Load billing session state (open/closed + unsettled counts) for the badge
+  // and to enable/disable the Close Billing button.
+  const loadBillingSession = async (dateStr = null) => {
+    const branchId = customerData?.selectedBranch?._id
+    if (!branchId) return
+    try {
+      const resp = await counterApi.getBillingSession(branchId, dateStr || selectedSalesDate)
+      setBillingSession(resp)
+    } catch (err) {
+      // Non-fatal — badge simply won't render
+      console.warn('[BillingSession] load failed:', err?.message)
+      setBillingSession(null)
     }
   }
 
@@ -4053,6 +4195,61 @@ const MenuScreen = () => {
       setComplimentaryBills([])
     } finally {
       setComplimentaryLoading(false)
+    }
+  }
+
+
+  // Load non-chargeable bills from backend API (server-side filtering + pagination)
+  const loadNCBills = async (selectedDate = null) => {
+    setNCListLoading(true)
+    try {
+      const rawDate = (typeof selectedDate === 'string' && selectedDate.length > 0)
+        ? selectedDate
+        : selectedNCDate
+      let branchId = customerData?.selectedBranch?._id
+      if (!branchId) {
+        try { branchId = JSON.parse(localStorage.getItem("selectedBranch") || '{}')._id } catch (_) {}
+      }
+      if (!branchId) throw new Error('No branch selected')
+
+      const params = new URLSearchParams({
+        branchId,
+        date: rawDate,
+        limit: '200',
+        sortBy: 'createdAt',
+        sortOrder: 'asc',
+      })
+
+      const serverRes = await counterApi.request(`/counter-order/non-chargeable-orders?${params.toString()}`)
+
+      let orders = []
+      if (serverRes?.success && Array.isArray(serverRes.data)) orders = serverRes.data
+      else if (Array.isArray(serverRes?.orders)) orders = serverRes.orders
+      else if (Array.isArray(serverRes)) orders = serverRes
+
+      const formattedBills = orders.map(order => ({
+        billId: order.id || order._id,
+        orderId: order.id || order._id,
+        customerName: (order.customerName || 'Walk-in Customer').replace(/\[undefined\]/gi, '').replace(/\[null\]/gi, '').trim(),
+        amount: order.originalGrandTotal || order.totalAmount || 0,
+        reason: order.nonChargeableReason || 'No reason provided',
+        type: order.nonChargeableType || 'staff',
+        time: new Date(order.createdAt || Date.now()).toLocaleTimeString('en-IN', {
+          hour: '2-digit', minute: '2-digit', hour12: true
+        }),
+        invoiceNumber: order.invoiceNumber || 'N/A',
+        items: order.items || [],
+        approvedBy: order.nonChargeableBy || 'N/A',
+        categoryName: order.categoryName || 'N/A',
+        createdAt: order.createdAt,
+      }))
+
+      setNCBills(formattedBills)
+    } catch (error) {
+      console.error('Error loading non-chargeable bills:', error)
+      setNCBills([])
+    } finally {
+      setNCListLoading(false)
     }
   }
 
@@ -4407,6 +4604,20 @@ const MenuScreen = () => {
         return
       }
 
+      // Handle Alt+N for non-chargeable bills
+      if (event.altKey && event.key.toLowerCase() === 'n') {
+        if (!isRestaurantCategory) return
+        event.preventDefault()
+        if (showNCList) {
+          setShowNCList(false)
+        } else {
+          loadNCBills(selectedNCDate)
+          setShowNCList(true)
+        }
+        return
+      }
+
+
       // Let the modal handle navigation keys when it's open
       // Only handle navigation here if modal is not focused
       if (showKOTList && savedKOTs.length > 0) {
@@ -4696,11 +4907,27 @@ const MenuScreen = () => {
     return cartItems.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0)
   }
 
+  // Extract an id from a field that may be a populated object ({_id,name}) or a raw string id
+  const idOf = (field) => {
+    if (!field) return null
+    if (typeof field === 'object') return (field._id || field.id || null)
+    return field
+  }
+
   // Sort menu items to show cart items first
   const sortedMenuItems = useMemo(() => {
     // When no search is active, show ALL items from allMenuItems
     const source = (menuItems && menuItems.length > 0) ? menuItems : allMenuItems
     if (!source || source.length === 0) return []
+
+    // Apply the display-only Category → Subcategory filter (does not affect
+    // ordering/KOT/billing — purely which cards are shown).
+    const filtered = source.filter(item => {
+      if (filterCategoryId && idOf(item.categoryId) !== filterCategoryId) return false
+      if (filterSubcategoryId && idOf(item.subcategoryId) !== filterSubcategoryId) return false
+      if (filterFoodType && item.foodType !== filterFoodType) return false
+      return true
+    })
 
     // Get IDs of items in cart
     const cartItemIds = new Set(cartItems.map(item => item._id))
@@ -4709,7 +4936,7 @@ const MenuScreen = () => {
     const itemsInCart = []
     const itemsNotInCart = []
 
-    source.forEach(item => {
+    filtered.forEach(item => {
       if (cartItemIds.has(item._id)) {
         itemsInCart.push(item)
       } else {
@@ -4719,7 +4946,7 @@ const MenuScreen = () => {
 
     // Return cart items first, then other items
     return [...itemsInCart, ...itemsNotInCart]
-  }, [menuItems, allMenuItems, cartItems])
+  }, [menuItems, allMenuItems, cartItems, filterCategoryId, filterSubcategoryId, filterFoodType])
 
   const handleGenerateBill = async () => {
     try {
@@ -5029,9 +5256,107 @@ const MenuScreen = () => {
     }
   }
 
+  // ── Non-Chargeable submit — mirrors handleComplimentarySubmit exactly ──────
+  const handleNCSubmit = async () => {
+    if (!ncReason.trim()) { setNcError('Please enter a reason'); return }
+    if (!ncByName.trim()) { setNcError('Please enter your name'); return }
+    if (!ncPassword.trim()) { setNcError('Please enter the manager password'); return }
+
+    const correctPassword = cancelOrderPassword || ADMIN_PASSWORD
+    if (ncPassword !== correctPassword) { setNcError('Invalid password'); return }
+
+    setProcessingNC(true)
+    setNcError('')
+
+    try {
+      const order = selectedOrderForNC
+      let mongoId = order.mongoId
+
+      // Sync first if we don't have the real server _id
+      if (!mongoId && navigator.onLine) {
+        setNcError('Syncing bill to server, please wait...')
+        try {
+          await syncManager.triggerSync()
+          const branchId = customerData?.selectedBranch?._id
+          if (branchId) {
+            const freshBills = await localCache.getBills(branchId)
+            const fresh = freshBills.find(b => b.invoiceNumber === order.invoiceNumber)
+            mongoId = fresh?.mongoId || null
+          }
+        } catch (_) {}
+        setNcError('')
+      }
+
+      // Offline fallback — mark locally
+      if (!mongoId) {
+        const branchId = customerData?.selectedBranch?._id
+        if (!branchId) { setNcError('Cannot process: no branch found.'); setProcessingNC(false); return }
+        const cachedBills = await localCache.getBills(branchId)
+        const cached = cachedBills.find(b => b.invoiceNumber === order.invoiceNumber)
+        if (!cached) { setNcError('Bill not found locally. Please sync first.'); setProcessingNC(false); return }
+
+        await localCache.saveBill({
+          ...cached,
+          isNonChargeable: true,
+          nonChargeableReason: `${ncReason.trim()} (By: ${ncByName.trim()})`,
+          nonChargeableType: ncType,
+          nonChargeableBy: ncByName.trim(),
+          nonChargeableAt: new Date().toISOString(),
+        })
+        setShowNCModal(false); setSelectedOrderForNC(null); setNcReason(''); setNcByName(''); setNcPassword('')
+        await loadSalesReport(selectedSalesDate)
+        alert('Non-chargeable bill saved locally. It will sync when connection is restored.')
+        return
+      }
+
+      // Call the dedicated NC endpoint — same pattern as PUT for complimentary
+      await counterApi.request(`/counter-order/orders/${mongoId}/non-chargeable`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          reason: `${ncReason.trim()} (By: ${ncByName.trim()})`,
+          type: ncType,
+          approvedBy: ncByName.trim(),
+        }),
+      })
+
+      // Keep localCache in sync so Sales Report reflects immediately
+      try {
+        const branchId = customerData?.selectedBranch?._id
+        if (branchId) {
+          const cachedBills = await localCache.getBills(branchId)
+          const cached = cachedBills.find(b => b.invoiceNumber === order.invoiceNumber)
+          if (cached) {
+            await localCache.saveBill({
+              ...cached,
+              isNonChargeable: true,
+              nonChargeableReason: `${ncReason.trim()} (By: ${ncByName.trim()})`,
+              nonChargeableType: ncType,
+              nonChargeableBy: ncByName.trim(),
+              nonChargeableAt: new Date().toISOString(),
+            })
+          }
+        }
+      } catch (_) {}
+
+      setShowNCModal(false); setSelectedOrderForNC(null); setNcReason(''); setNcType('staff'); setNcByName(''); setNcPassword('')
+      await loadSalesReport(selectedSalesDate)
+      alert('Bill marked non-chargeable successfully')
+    } catch (error) {
+      console.error('❌ Error marking non-chargeable:', error)
+      setNcError(error.message || 'Failed to mark non-chargeable')
+    } finally {
+      setProcessingNC(false)
+    }
+  }
+
+  const handleCloseNCModal = () => {
+    if (processingNC) return
+    setShowNCModal(false); setSelectedOrderForNC(null)
+    setNcReason(''); setNcType('staff'); setNcByName(''); setNcPassword(''); setNcError('')
+  }
+
   // Handle close complimentary modal
-  const handleCloseComplimentaryModal = () => {
-    if (processingComplimentary) return
+  const handleCloseComplimentaryModal = () => {    if (processingComplimentary) return
     setShowComplimentaryModal(false)
     setSelectedOrderForComplimentary(null)
     setComplimentaryReason('')
@@ -5232,6 +5557,34 @@ const MenuScreen = () => {
             >
               <Gift size={16} strokeWidth={2} /> Complimentary
               <span style={{ fontSize: '0.7rem', opacity: 0.7, fontWeight: '400' }}>Alt+C</span>
+            </button>
+
+            {/* Non-Chargeable Bills Button */}
+            <button
+              onClick={() => {
+                setShowNCList(true)
+                loadNCBills(selectedNCDate)
+              }}
+              style={{
+                background: '#f0f7fa',
+                color: '#3f5d6b',
+                border: '2px solid #3f5d6b',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                fontSize: '0.875rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.background = '#3f5d6b'; e.currentTarget.style.color = '#fff' }}
+              onMouseOut={(e) => { e.currentTarget.style.background = '#f0f7fa'; e.currentTarget.style.color = '#3f5d6b' }}
+              title="View non-chargeable bills (Alt+N)"
+            >
+              🍽️ Non-Chargeable
+              <span style={{ fontSize: '0.7rem', opacity: 0.7, fontWeight: '400' }}>Alt+N</span>
             </button>
 
             {/* Sales Report Button */}
@@ -5467,7 +5820,9 @@ const MenuScreen = () => {
 
                             tables.forEach(table => {
                               const num = table.number || table.tableNumber || ''
-                              const match = String(num).match(/^([A-Za-z]+)(\d+.*)$/)
+                              // Letters, then an optional separator (- _ or space), then digits.
+                              // Supports C1, C001, VIP1 and also C-001, G-0001, C_001, "C 001".
+                              const match = String(num).match(/^([A-Za-z]+)[\s._-]*(\d+.*)$/)
                               if (match) {
                                 const prefix = match[1].toUpperCase()
                                 if (!groupedTables[prefix]) groupedTables[prefix] = []
@@ -5583,7 +5938,114 @@ const MenuScreen = () => {
               </div>
             )}
 
-            {/* Categories tabs removed - fetch all items */}
+            {/* Food-type filter */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '4px 0 8px' }}>
+              {[
+                { value: null, label: 'All', color: '#7a1f1f' },
+                { value: 'veg', label: 'Veg', color: '#16a34a' },
+                { value: 'non-veg', label: 'Non-Veg', color: '#dc2626' },
+                { value: 'egg', label: 'Egg', color: '#d97706' },
+                { value: 'sea-food', label: 'Sea Food', color: '#0891b2' },
+                { value: 'chef-special', label: 'Chef Special', color: '#7c3aed' },
+                { value: 'spice-level', label: 'Spice Level', color: '#ea580c' },
+                { value: 'gluten-free', label: 'Gluten Free', color: '#65a30d' },
+              ].map((opt) => {
+                const active = filterFoodType === opt.value
+                return (
+                  <button
+                    key={opt.label}
+                    onClick={() => setFilterFoodType(opt.value)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 600,
+                      cursor: 'pointer', border: `1px solid ${opt.color}`,
+                      background: active ? opt.color : 'white',
+                      color: active ? 'white' : opt.color,
+                    }}
+                  >
+                    {opt.value && (
+                      <span style={{
+                        width: '10px', height: '10px', borderRadius: '2px',
+                        border: `2px solid ${active ? 'white' : opt.color}`,
+                        display: 'inline-block',
+                      }} />
+                    )}
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Category → Subcategory filter bar (display-only) */}
+            {categoryObjects.length > 0 && (
+              <div style={{ margin: '4px 0 8px' }}>
+                {/* Category chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                  <button
+                    onClick={() => { setFilterCategoryId(null); setFilterSubcategoryId(null) }}
+                    style={{
+                      padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 600,
+                      cursor: 'pointer', border: '1px solid #7a1f1f',
+                      background: filterCategoryId === null ? '#7a1f1f' : 'white',
+                      color: filterCategoryId === null ? 'white' : '#7a1f1f',
+                    }}
+                  >
+                    All
+                  </button>
+                  {categoryObjects.map((cat) => (
+                    <button
+                      key={cat._id}
+                      onClick={() => { setFilterCategoryId(cat._id); setFilterSubcategoryId(null) }}
+                      style={{
+                        padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 600,
+                        cursor: 'pointer', border: '1px solid #7a1f1f',
+                        background: filterCategoryId === cat._id ? '#7a1f1f' : 'white',
+                        color: filterCategoryId === cat._id ? 'white' : '#7a1f1f',
+                      }}
+                    >
+                      {cat.name || cat.categoryName || cat.title}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Subcategory chips — shown once a category is picked */}
+                {filterCategoryId && (() => {
+                  const subsForCategory = subcategories.filter(
+                    (sub) => idOf(sub.categoryId) === filterCategoryId
+                  )
+                  if (subsForCategory.length === 0) return null
+                  return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingLeft: '4px' }}>
+                      <button
+                        onClick={() => setFilterSubcategoryId(null)}
+                        style={{
+                          padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 600,
+                          cursor: 'pointer', border: '1px solid #b0824f',
+                          background: filterSubcategoryId === null ? '#b0824f' : 'white',
+                          color: filterSubcategoryId === null ? 'white' : '#8a5a2a',
+                        }}
+                      >
+                        All
+                      </button>
+                      {subsForCategory.map((sub) => (
+                        <button
+                          key={sub._id}
+                          onClick={() => setFilterSubcategoryId(sub._id)}
+                          style={{
+                            padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 600,
+                            cursor: 'pointer', border: '1px solid #b0824f',
+                            background: filterSubcategoryId === sub._id ? '#b0824f' : 'white',
+                            color: filterSubcategoryId === sub._id ? 'white' : '#8a5a2a',
+                          }}
+                        >
+                          {sub.name}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
 
             {/* Menu Items */}
             {sortedMenuItems.length === 0 ? (
@@ -5935,9 +6397,6 @@ const MenuScreen = () => {
               </div>
             )}
           </div>
-          {/* END LEFT COLUMN */}
-
-          {/* RIGHT COLUMN - Cart (Sticky) */}
           <div style={{
             position: 'sticky',
             top: '20px',
@@ -7442,7 +7901,6 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
-
         {/* Complimentary Bills Modal */}
         {showComplimentaryList && (
           <div style={{
@@ -7804,7 +8262,361 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
+        {/* Non-Chargeable Bills Modal */}
+        {showNCList && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '14px',
+              padding: '24px',
+              minWidth: '700px',
+              maxWidth: '900px',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 60px rgba(63,93,107,0.18)',
+              border: '1px solid #d1e3ea',
+              outline: 'none'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px',
+                paddingBottom: '14px',
+                borderBottom: '2px solid #d1e3ea'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '36px', height: '36px', borderRadius: '8px',
+                    background: '#f0f7fa', border: '1.5px solid #3f5d6b',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '1.1rem'
+                  }}>
+                    🍽️
+                  </div>
+                  <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#3f5d6b', fontWeight: '700' }}>
+                    Non-Chargeable Bills
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setShowNCList(false)}
+                  style={{
+                    background: '#f0f7fa', color: '#3f5d6b',
+                    border: '1.5px solid #d1e3ea', borderRadius: '8px',
+                    width: '32px', height: '32px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', fontSize: '1rem'
+                  }}
+                  title="Close (Alt+N)"
+                >
+                  ✕
+                </button>
+              </div>
 
+              {/* Date Selector */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+                padding: '16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: '700', color: '#3f5d6b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                    Date
+                  </span>
+                  <input
+                    type="date"
+                    value={selectedNCDate}
+                    onChange={(e) => {
+                      setSelectedNCDate(e.target.value)
+                      loadNCBills(e.target.value)
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      border: '1.5px solid #d1e3ea',
+                      borderRadius: '7px',
+                      fontSize: '0.85rem',
+                      fontWeight: '500',
+                      outline: 'none',
+                      color: '#1a202c'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => {
+                      const yesterday = new Date()
+                      yesterday.setDate(yesterday.getDate() - 1)
+                      const yesterdayStr = yesterday.toISOString().split('T')[0]
+                      setSelectedNCDate(yesterdayStr)
+                      loadNCBills(yesterdayStr)
+                    }}
+                    style={{
+                      padding: '5px 12px', height: '30px',
+                      border: '1.5px solid #d1e3ea', borderRadius: '6px',
+                      background: '#fff', color: '#1a202c',
+                      fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer'
+                    }}
+                  >
+                    Yesterday
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0]
+                      setSelectedNCDate(today)
+                      loadNCBills(today)
+                    }}
+                    style={{
+                      padding: '5px 12px', height: '30px',
+                      border: selectedNCDate === new Date().toISOString().split('T')[0] ? '2px solid #3f5d6b' : '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      backgroundColor: selectedNCDate === new Date().toISOString().split('T')[0] ? '#f0f7fa' : 'white',
+                      color: selectedNCDate === new Date().toISOString().split('T')[0] ? '#3f5d6b' : '#374151',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Today
+                  </button>
+
+                  <button
+                    onClick={() => loadNCBills(selectedNCDate)}
+                    disabled={ncListLoading}
+                    style={{
+                      padding: '5px 12px', height: '30px',
+                      border: '1.5px solid #d1e3ea', borderRadius: '6px',
+                      background: ncListLoading ? '#f3f4f6' : '#f0f7fa',
+                      color: ncListLoading ? '#9ca3af' : '#3f5d6b',
+                      fontSize: '0.78rem', fontWeight: '600',
+                      cursor: ncListLoading ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '5px'
+                    }}
+                  >
+                    {ncListLoading ? '⟳ Loading...' : '⟳ Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              {ncListLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b8a97' }}>
+                  <div className="counter-spinner" style={{ margin: '0 auto 12px' }} />
+                  <div style={{ fontSize: '0.9rem' }}>Loading non-chargeable bills...</div>
+                </div>
+              ) : ncBills.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b8a97' }}>
+                  <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🍽️</div>
+                  <div style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '6px', color: '#1a202c' }}>
+                    No Non-Chargeable Bills Found
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: '#6b8a97' }}>
+                    No non-chargeable bills for {selectedNCDate === new Date().toISOString().split('T')[0] ? 'today' : new Date(selectedNCDate).toLocaleDateString('en-IN', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{
+                    marginBottom: '16px',
+                    padding: '12px 14px',
+                    background: '#f0f7fa',
+                    borderRadius: '8px',
+                    border: '1.5px solid #3f5d6b',
+                    display: 'flex', gap: '24px', alignItems: 'center'
+                  }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#3f5d6b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                      {selectedNCDate === new Date().toISOString().split('T')[0] ? "Today's Summary" : new Date(selectedNCDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#1a202c' }}>
+                      Total Bills: <strong>{ncBills.length}</strong>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#1a202c' }}>
+                      Total Amount: <strong style={{ color: '#3f5d6b' }}>₹{ncBills.reduce((sum, bill) => sum + (bill.amount || 0), 0).toFixed(2)}</strong>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gap: '12px',
+                    maxHeight: '400px',
+                    overflowY: 'auto'
+                  }}>
+                    {ncBills.map((bill, index) => (
+                      <div key={bill.billId || index} style={{
+                        background: '#fafcfd',
+                        border: '1.5px solid #d1e3ea',
+                        borderRadius: '10px',
+                        padding: '14px 16px',
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          marginBottom: '10px'
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{
+                              fontSize: '1rem',
+                              fontWeight: '700',
+                              color: '#1a202c',
+                              marginBottom: '3px'
+                            }}>
+                              {bill.customerName}
+                            </div>
+                            <div style={{
+                              fontSize: '0.8rem',
+                              color: '#6b7280',
+                              marginBottom: '4px'
+                            }}>
+                              Invoice: {bill.invoiceNumber} • Time: {bill.time}
+                            </div>
+                            <div style={{
+                              fontSize: '0.72rem',
+                              color: '#3f5d6b',
+                              background: '#f0f7fa',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              display: 'inline-block',
+                              marginBottom: '4px',
+                              border: '1px solid #d1e3ea',
+                              textTransform: 'capitalize'
+                            }}>
+                              Type: {bill.type}
+                            </div>
+                            {bill.approvedBy && bill.approvedBy !== 'N/A' && (
+                              <div style={{ fontSize: '0.75rem', color: '#6b8a97', marginTop: '4px' }}>
+                                Approved by: {bill.approvedBy}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{
+                            fontSize: '1.1rem',
+                            fontWeight: '700',
+                            color: '#3f5d6b'
+                          }}>
+                            ₹{(bill.amount || 0).toFixed(2)}
+                          </div>
+                        </div>
+
+                        {/* Items List */}
+                        {bill.items && bill.items.length > 0 && (
+                          <div style={{
+                            background: '#f8fafc',
+                            padding: '10px',
+                            borderRadius: '7px',
+                            marginBottom: '10px',
+                            border: '1px solid #e2e8f0'
+                          }}>
+                            <div style={{
+                              fontSize: '0.72rem',
+                              color: '#6b8a97',
+                              fontWeight: '700',
+                              marginBottom: '5px',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.3px'
+                            }}>
+                              Items ({bill.items.length}):
+                            </div>
+                            <div style={{ fontSize: '0.78rem', color: '#1a202c' }}>
+                              {bill.items.map((item, idx) => (
+                                <div key={idx} style={{ marginBottom: '2px' }}>
+                                  • {item.name} x {item.quantity} — ₹{((item.price || 0) * (item.quantity || 0)).toFixed(2)}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{
+                          background: '#f0f7fa',
+                          padding: '10px 12px',
+                          borderRadius: '7px',
+                          border: '1.5px solid #3f5d6b'
+                        }}>
+                          <div style={{
+                            fontSize: '0.72rem',
+                            color: '#3f5d6b',
+                            fontWeight: '700',
+                            marginBottom: '3px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.3px',
+                            display: 'flex', alignItems: 'center', gap: '5px'
+                          }}>
+                            🍽️ Non-Chargeable Reason:
+                          </div>
+                          <div style={{
+                            fontSize: '0.85rem',
+                            color: '#1a202c',
+                            fontStyle: 'italic'
+                          }}>
+                            {bill.reason || 'No reason provided'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div style={{
+                marginTop: '24px',
+                textAlign: 'center'
+              }}>
+                <button
+                  onClick={() => loadNCBills(selectedNCDate)}
+                  disabled={ncListLoading}
+                  style={{
+                    background: '#3f5d6b',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '12px 24px',
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    cursor: ncListLoading ? 'not-allowed' : 'pointer',
+                    opacity: ncListLoading ? 0.6 : 1,
+                    marginRight: '12px'
+                  }}
+                >
+                  {ncListLoading ? '⟳ Refreshing...' : '⟳ Refresh'}
+                </button>
+
+                <button
+                  onClick={() => setShowNCList(false)}
+                  style={{
+                    background: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '12px 24px',
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Table Shift Modal */}
         {showTableShiftModal && shiftingKOT && (
           <div style={{
@@ -8066,7 +8878,6 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
-
         {/* Quantity Popup Modal */}
         {showQuantityPopup && selectedMenuItem && (
           <div style={{
@@ -8206,7 +9017,6 @@ const MenuScreen = () => {
                   />
                 </div>
               )}
-
               <div style={{
                 display: 'flex',
                 gap: '12px'
@@ -8251,8 +9061,6 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
-
-
         {showSalesReport && (
           <div
             style={{
@@ -8272,13 +9080,13 @@ const MenuScreen = () => {
             <div
               style={{
                 background: 'white',
-                borderRadius: '14px',
-                padding: '24px',
-                width: '90%',
-                maxWidth: '1000px',
-                maxHeight: '90vh',
+                borderRadius: '16px',
+                padding: '28px 32px',
+                width: '96%',
+                maxWidth: '1320px',
+                maxHeight: '94vh',
                 overflow: 'auto',
-                boxShadow: '0 20px 60px rgba(105,34,27,0.18)',
+                boxShadow: '0 24px 70px rgba(105,34,27,0.22)',
                 border: '1px solid #e8ddd8'
               }}
             >
@@ -8312,6 +9120,18 @@ const MenuScreen = () => {
                         Offline
                       </span>
                     )}
+                    {/* Billing session status badge */}
+                    {billingSession && (
+                      <span style={{
+                        marginLeft: '6px', fontSize: '0.7rem', fontWeight: 700,
+                        borderRadius: '999px', padding: '3px 10px', verticalAlign: 'middle',
+                        background: billingSession.status === 'closed' ? '#fee2e2' : '#dcfce7',
+                        color: billingSession.status === 'closed' ? '#991b1b' : '#166534',
+                        border: `1px solid ${billingSession.status === 'closed' ? '#fecaca' : '#bbf7d0'}`,
+                      }}>
+                        {billingSession.status === 'closed' ? '🔒 Billing Closed' : '🟢 Billing Open'}
+                      </span>
+                    )}
                   </h2>
                   <p style={{ margin: 0, color: '#a07060', fontSize: '0.85rem', fontWeight: '500' }}>
                     {salesData?.branch}
@@ -8323,6 +9143,8 @@ const MenuScreen = () => {
                   <input
                     type="date"
                     value={selectedSalesDate}
+                    min={(() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })()}
+                    max={(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })()}
                     onChange={(e) => {
                       setSelectedSalesDate(e.target.value);
                       loadSalesReport(e.target.value);
@@ -8363,6 +9185,85 @@ const MenuScreen = () => {
                   >
                     {salesLoading || kotLoading ? <><RefreshCw size={13} style={{animation:'spin 1s linear infinite'}}/> Refreshing...</> : <><RefreshCw size={13}/> Refresh</>}
                   </button>
+
+                  {/* Reopen Billing — shown once the day is closed */}
+                  {billingSession && billingSession.status === 'closed' && (
+                    <button
+                      onClick={() => {
+                        setReopenReason('')
+                        setReopenPassword('')
+                        setReopenError('')
+                        setShowReopenModal(true)
+                      }}
+                      style={{
+                        background: '#fef3c7',
+                        color: '#92400e',
+                        border: '1.5px solid #fde68a',
+                        borderRadius: '8px',
+                        padding: '7px 14px',
+                        height: '34px',
+                        fontSize: '0.82rem',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '5px'
+                      }}
+                      title="Reopen billing for this day"
+                    >
+                      🔓 Reopen Billing
+                    </button>
+                  )}
+
+                  {/* Close Billing (day close / Z-Report) — only while billing is open */}
+                  {billingSession && billingSession.status !== 'closed' && (
+                    <button
+                      onClick={async () => {
+                        setCloseBillingError('')
+                        setCashDeclared('')
+                        setCloseNotes('')
+                        setClosePreview(null)
+                        setShowCloseBillingModal(true)
+                        try {
+                          const branchId = customerData?.selectedBranch?._id
+                          const preview = await counterApi.previewCloseBilling(branchId, selectedSalesDate)
+                          setClosePreview(preview)
+                          // Round to 2dp — raw float sums produce values like 6065.549999999999
+                          setCashDeclared(
+                            preview?.cashExpected != null ? Number(preview.cashExpected).toFixed(2) : ''
+                          )
+                        } catch (err) {
+                          setCloseBillingError(err.message || 'Could not load closing summary')
+                        }
+                      }}
+                      disabled={!billingSession.canClose}
+                      style={{
+                        background: billingSession.canClose ? '#065f46' : '#f3f4f6',
+                        color: billingSession.canClose ? 'white' : '#9ca3af',
+                        border: billingSession.canClose ? 'none' : '1.5px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '7px 14px',
+                        height: '34px',
+                        fontSize: '0.82rem',
+                        fontWeight: '700',
+                        cursor: billingSession.canClose ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: '5px'
+                      }}
+                      title={
+                        billingSession.canClose
+                          ? 'Close billing for the day and generate the Z-Report'
+                          : `${billingSession.unsettledCount} bill(s) unsettled, ${billingSession.openKOTCount} KOT(s) open`
+                      }
+                    >
+                      🔒 Close Billing
+                      {!billingSession.canClose && (billingSession.unsettledCount > 0 || billingSession.openKOTCount > 0) && (
+                        <span style={{
+                          background: '#dc2626', color: 'white', borderRadius: '999px',
+                          padding: '1px 6px', fontSize: '0.68rem', fontWeight: 800
+                        }}>
+                          {billingSession.unsettledCount + billingSession.openKOTCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
 
                   <button
                     onClick={() => setShowSalesReport(false)}
@@ -8442,13 +9343,13 @@ const MenuScreen = () => {
                     }
 
                     return (<>
-                  {/* Summary Cards */}
+                  {/* Summary Cards — fixed 6 columns so they sit on one clean row */}
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                      gap: '16px',
-                      marginBottom: '32px'
+                      gridTemplateColumns: 'repeat(6, 1fr)',
+                      gap: '12px',
+                      marginBottom: '26px'
                     }}
                   >
                     <div
@@ -8456,14 +9357,14 @@ const MenuScreen = () => {
                         background: '#fff5f4',
                         border: '2px solid #69221b',
                         borderRadius: '12px',
-                        padding: '16px',
+                        padding: '14px 10px',
                         textAlign: 'center'
                       }}
                     >
-                      <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#69221b' }}>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#69221b' }}>
                         {filteredSummary.totalOrders}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
                         Total Orders
                       </div>
                     </div>
@@ -8473,14 +9374,14 @@ const MenuScreen = () => {
                         background: '#fff5f4',
                         border: '2px solid #69221b',
                         borderRadius: '12px',
-                        padding: '16px',
+                        padding: '14px 10px',
                         textAlign: 'center'
                       }}
                     >
-                      <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#69221b' }}>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#69221b' }}>
                         ₹{filteredSummary.totalRevenue.toFixed(2)}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
                         Total Revenue
                       </div>
                     </div>
@@ -8490,14 +9391,14 @@ const MenuScreen = () => {
                         background: '#faf8f6',
                         border: '1.5px solid #e8ddd8',
                         borderRadius: '12px',
-                        padding: '16px',
+                        padding: '14px 10px',
                         textAlign: 'center'
                       }}
                     >
-                      <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#2d1a18' }}>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#2d1a18' }}>
                         {filteredSummary.totalItems}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
                         Items Sold
                       </div>
                     </div>
@@ -8507,14 +9408,14 @@ const MenuScreen = () => {
                         background: '#faf8f6',
                         border: '1.5px solid #e8ddd8',
                         borderRadius: '12px',
-                        padding: '16px',
+                        padding: '14px 10px',
                         textAlign: 'center'
                       }}
                     >
-                      <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#2d1a18' }}>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#2d1a18' }}>
                         ₹{filteredSummary.averageOrderValue.toFixed(2)}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#a07060', fontWeight: '600', marginTop: '4px' }}>
                         Avg Order Value
                       </div>
                     </div>
@@ -8526,14 +9427,14 @@ const MenuScreen = () => {
                           background: '#f0fdf4',
                           border: '2px solid #22c55e',
                           borderRadius: '12px',
-                          padding: '16px',
+                          padding: '14px 10px',
                           textAlign: 'center'
                         }}
                       >
-                        <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#16a34a' }}>
+                        <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#16a34a' }}>
                           ₹{salesData.summary.totalGST.toFixed(2)}
                         </div>
-                        <div style={{ fontSize: '0.8rem', color: '#15803d', fontWeight: '600', marginTop: '4px' }}>
+                        <div style={{ fontSize: '0.72rem', color: '#15803d', fontWeight: '600', marginTop: '4px' }}>
                           Total GST Collected
                         </div>
                       </div>
@@ -8877,11 +9778,9 @@ const MenuScreen = () => {
                                   {isCancelled && order.cancellationReason && (
                                     <div
                                       style={{
-                                        marginTop: '8px',
-                                        padding: '8px',
-                                        background: '#fef2f2',
-                                        border: '1px solid #fca5a5',
-                                        borderRadius: '6px',
+                                        marginTop: '6px',
+                                        paddingLeft: '10px',
+                                        borderLeft: '3px solid #fca5a5',
                                         fontSize: '0.75rem'
                                       }}
                                     >
@@ -8889,10 +9788,10 @@ const MenuScreen = () => {
                                         style={{
                                           color: '#991b1b',
                                           fontWeight: '600',
-                                          marginBottom: '4px'
+                                          marginBottom: '3px'
                                         }}
                                       >
-                                        🚫 Cancellation Details:
+                                        Cancellation Details
                                       </div>
                                       <div style={{ color: '#dc2626' }}>
                                         <strong>Reason:</strong> {order.cancellationReason}
@@ -8949,6 +9848,36 @@ const MenuScreen = () => {
                                     >
                                       👁️ View
                                     </button>
+
+                                    {/* Settlement button — only for billed (unsettled) orders */}
+                                    {order.paymentStatus === 'billed' && !isCancelled && (
+                                      <button
+                                        onClick={() => {
+                                          setSettleOrder(order)
+                                          setSettleMethod('')
+                                          setSettleUtr('')
+                                          setSettleError('')
+                                          setShowSettleModal(true)
+                                        }}
+                                        style={{
+                                          background: '#ecfdf5',
+                                          color: '#065f46',
+                                          border: '1.5px solid #a7f3d0',
+                                          borderRadius: '6px',
+                                          padding: '5px 10px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '600',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.2s',
+                                          display: 'flex', alignItems: 'center', gap: '4px'
+                                        }}
+                                        onMouseOver={(e) => (e.currentTarget.style.background = '#065f46', e.currentTarget.style.color = '#fff')}
+                                        onMouseOut={(e) => (e.currentTarget.style.background = '#ecfdf5', e.currentTarget.style.color = '#065f46')}
+                                        title="Settle payment"
+                                      >
+                                        💰 Settle
+                                      </button>
+                                    )}
 
                                     {!isCancelled ? (
                                       <button
@@ -9031,6 +9960,43 @@ const MenuScreen = () => {
                                           title={`Generate complimentary bill for ${order.orderNumber}`}
                                         >
                                           🎁 Complimentary
+                                        </button>
+                                      )
+                                    )}
+
+                                    {/* Non-Chargeable button — mirrors Complimentary */}
+                                    {!isCancelled && !order.isNonChargeable && !order.isComplimentary && (
+                                      ((order.categoryName &&
+                                        order.categoryName.toLowerCase().includes('restaurant')) ||
+                                        (customerData.selectedCategory?.name &&
+                                          customerData.selectedCategory.name.toLowerCase().includes('restaurant'))) && (
+                                        <button
+                                          onClick={() => {
+                                            setSelectedOrderForNC(order)
+                                            setNcReason('')
+                                            setNcType('staff')
+                                            setNcByName('')
+                                            setNcPassword('')
+                                            setNcError('')
+                                            setShowNCModal(true)
+                                          }}
+                                          style={{
+                                            background: '#f4f9fb',
+                                            color: '#3f5d6b',
+                                            border: '1.5px solid #cfe0e6',
+                                            borderRadius: '6px',
+                                            padding: '5px 10px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex', alignItems: 'center', gap: '4px'
+                                          }}
+                                          onMouseOver={(e) => (e.currentTarget.style.background = '#3f5d6b', e.currentTarget.style.color = '#fff')}
+                                          onMouseOut={(e) => (e.currentTarget.style.background = '#f4f9fb', e.currentTarget.style.color = '#3f5d6b')}
+                                          title={`Mark as non-chargeable (staff/internal)`}
+                                        >
+                                          🍽️ NC
                                         </button>
                                       )
                                     )}
@@ -9271,7 +10237,6 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
-
         {/* Order Details Modal */}
         {showOrderDetails && selectedOrderDetails && (
           <div style={{
@@ -9524,6 +10489,388 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
+        {/* Reopen Billing Modal */}
+        {showReopenModal && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.55)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 10001, padding: '20px'
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '14px', padding: '26px',
+              width: '100%', maxWidth: '400px', boxShadow: '0 24px 48px rgba(0,0,0,0.25)'
+            }}>
+              <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', color: '#1f2937' }}>
+                Reopen Billing
+              </h3>
+              <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#6b7280' }}>
+                {selectedSalesDate} — this reverses the day close. The existing Z-Report
+                figures will be recalculated when you close again.
+              </p>
+
+              {reopenError && (
+                <div style={{ background: '#fee2e2', color: '#dc2626', padding: '9px 12px', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '14px' }}>
+                  {reopenError}
+                </div>
+              )}
+
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>
+                Reason (required)
+              </label>
+              <textarea
+                rows={2}
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="e.g. A late bill still needs to be entered"
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: '8px',
+                  border: '1.5px solid #d1d5db', fontSize: '0.88rem',
+                  marginBottom: '12px', resize: 'vertical', fontFamily: 'inherit'
+                }}
+              />
+
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>
+                Manager password
+              </label>
+              <input
+                type="password"
+                value={reopenPassword}
+                onChange={(e) => setReopenPassword(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: '8px',
+                  border: '1.5px solid #d1d5db', fontSize: '0.9rem', marginBottom: '18px'
+                }}
+              />
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => setShowReopenModal(false)}
+                  disabled={reopening}
+                  style={{
+                    flex: 1, padding: '12px', borderRadius: '8px', border: '1.5px solid #e5e7eb',
+                    background: 'white', color: '#4b5563', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!reopenReason.trim()) { setReopenError('A reason is required'); return }
+                    const expected = cancelOrderPassword || ADMIN_PASSWORD
+                    if (reopenPassword !== expected) { setReopenError('Invalid manager password'); return }
+                    setReopening(true)
+                    setReopenError('')
+                    try {
+                      await counterApi.reopenBilling({
+                        branchId: customerData?.selectedBranch?._id,
+                        date: selectedSalesDate,
+                        reopenedBy: localStorage.getItem('counterUsername') || null,
+                        reason: reopenReason.trim(),
+                      })
+                      setShowReopenModal(false)
+                      await loadBillingSession(selectedSalesDate)
+                      alert(`Billing reopened for ${selectedSalesDate}`)
+                    } catch (err) {
+                      setReopenError(err.message || 'Failed to reopen billing')
+                    } finally {
+                      setReopening(false)
+                    }
+                  }}
+                  disabled={reopening}
+                  style={{
+                    flex: 1, padding: '12px', borderRadius: '8px', border: 'none',
+                    background: '#b45309', color: 'white', fontWeight: 700,
+                    cursor: 'pointer', opacity: reopening ? 0.6 : 1
+                  }}
+                >
+                  {reopening ? 'Reopening…' : '🔓 Reopen'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Close Billing (Z-Report) Modal */}
+        {showCloseBillingModal && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.55)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 10001, padding: '20px'
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '14px', padding: '26px',
+              width: '100%', maxWidth: '440px', maxHeight: '90vh', overflowY: 'auto',
+              boxShadow: '0 24px 48px rgba(0,0,0,0.25)'
+            }}>
+              <h3 style={{ margin: '0 0 2px', fontSize: '1.15rem', color: '#1f2937' }}>
+                Close Billing
+              </h3>
+              <p style={{ margin: '0 0 18px', fontSize: '0.85rem', color: '#6b7280' }}>
+                {selectedSalesDate} · {customerData?.selectedBranch?.name || 'Branch'}
+              </p>
+
+              {closeBillingError && (
+                <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px 12px', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '14px' }}>
+                  {closeBillingError}
+                </div>
+              )}
+
+              {!closePreview && !closeBillingError && (
+                <p style={{ fontSize: '0.85rem', color: '#6b7280' }}>Loading summary…</p>
+              )}
+
+              {closePreview && (
+                <>
+                  {/* Totals */}
+                  <div style={{ border: '1px solid #f0e4e4', borderRadius: '10px', padding: '14px', marginBottom: '14px' }}>
+                    {[
+                      ['Total Bills', closePreview.totals?.billCount ?? 0],
+                      ['Gross Sales', `₹${(closePreview.totals?.grossSales ?? 0).toFixed(2)}`],
+                      ['GST', `₹${(closePreview.totals?.gst ?? 0).toFixed(2)}`],
+                      ['Discount', `₹${(closePreview.totals?.discount ?? 0).toFixed(2)}`],
+                    ].map(([label, val]) => (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '0.85rem' }}>
+                        <span style={{ color: '#6b7280' }}>{label}</span>
+                        <span style={{ fontWeight: 700, color: '#1f2937' }}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Payment breakdown */}
+                  <p style={{ margin: '0 0 8px', fontSize: '0.72rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Payment Breakdown
+                  </p>
+                  <div style={{ border: '1px solid #f0e4e4', borderRadius: '10px', padding: '14px', marginBottom: '16px' }}>
+                    {[
+                      ['💵 Cash', closePreview.paymentBreakdown?.cash ?? 0],
+                      ['📱 UPI', closePreview.paymentBreakdown?.upi ?? 0],
+                      ['💳 Card', closePreview.paymentBreakdown?.card ?? 0],
+                    ].map(([label, val]) => (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '0.85rem' }}>
+                        <span style={{ color: '#6b7280' }}>{label}</span>
+                        <span style={{ fontWeight: 700, color: '#1f2937' }}>₹{Number(val).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Cash reconciliation */}
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>
+                    Cash in drawer (count and enter)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={cashDeclared}
+                    onChange={(e) => setCashDeclared(e.target.value)}
+                    style={{
+                      width: '100%', padding: '10px 14px', borderRadius: '8px',
+                      border: '1.5px solid #d1d5db', fontSize: '0.95rem', marginBottom: '6px'
+                    }}
+                  />
+                  {(() => {
+                    const expected = Number(closePreview.cashExpected || 0)
+                    const declared = Number(cashDeclared || 0)
+                    const variance = declared - expected
+                    const isZero = Math.abs(variance) < 0.005
+                    return (
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        fontSize: '0.8rem', marginBottom: '14px',
+                        color: isZero ? '#166534' : variance < 0 ? '#dc2626' : '#b45309',
+                        fontWeight: 700
+                      }}>
+                        <span>Expected ₹{expected.toFixed(2)}</span>
+                        <span>
+                          {isZero ? 'Tallied ✓'
+                            : variance < 0 ? `Short ₹${Math.abs(variance).toFixed(2)}`
+                            : `Excess ₹${variance.toFixed(2)}`}
+                        </span>
+                      </div>
+                    )
+                  })()}
+
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>
+                    Notes (optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                    style={{
+                      width: '100%', padding: '10px 14px', borderRadius: '8px',
+                      border: '1.5px solid #d1d5db', fontSize: '0.88rem',
+                      marginBottom: '18px', resize: 'vertical', fontFamily: 'inherit'
+                    }}
+                  />
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => { setShowCloseBillingModal(false); setClosePreview(null) }}
+                  disabled={closingBilling}
+                  style={{
+                    flex: 1, padding: '12px', borderRadius: '8px', border: '1.5px solid #e5e7eb',
+                    background: 'white', color: '#4b5563', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setClosingBilling(true)
+                    setCloseBillingError('')
+                    try {
+                      const branchId = customerData?.selectedBranch?._id
+                      const resp = await counterApi.closeBilling({
+                        branchId,
+                        date: selectedSalesDate,
+                        closedBy: localStorage.getItem('counterUsername') || null,
+                        cashDeclared: Number(cashDeclared || 0),
+                        notes: closeNotes || null,
+                      })
+                      setShowCloseBillingModal(false)
+                      setClosePreview(null)
+                      await loadBillingSession(selectedSalesDate)
+                      alert(
+                        `Billing closed for ${selectedSalesDate}\n\n` +
+                        `Bills: ${resp.session?.totals?.billCount ?? 0}\n` +
+                        `Gross Sales: ₹${(resp.session?.totals?.grossSales ?? 0).toFixed(2)}\n` +
+                        `Cash: ₹${(resp.session?.paymentBreakdown?.cash ?? 0).toFixed(2)}\n` +
+                        `UPI: ₹${(resp.session?.paymentBreakdown?.upi ?? 0).toFixed(2)}\n` +
+                        `Card: ₹${(resp.session?.paymentBreakdown?.card ?? 0).toFixed(2)}\n` +
+                        `Variance: ₹${(resp.session?.cashVariance ?? 0).toFixed(2)}`
+                      )
+                    } catch (err) {
+                      setCloseBillingError(err.message || 'Failed to close billing')
+                    } finally {
+                      setClosingBilling(false)
+                    }
+                  }}
+                  disabled={closingBilling || !closePreview || !closePreview.canClose}
+                  style={{
+                    flex: 1, padding: '12px', borderRadius: '8px', border: 'none',
+                    background: (closePreview && closePreview.canClose) ? '#065f46' : '#9ca3af',
+                    color: 'white', fontWeight: 700,
+                    cursor: (closePreview && closePreview.canClose) ? 'pointer' : 'not-allowed',
+                    opacity: closingBilling ? 0.6 : 1
+                  }}
+                >
+                  {closingBilling ? 'Closing…' : '🔒 Confirm & Close'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Settlement Modal */}
+        {showSettleModal && settleOrder && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '20px'
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '14px', padding: '28px',
+              width: '100%', maxWidth: '400px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
+            }}>
+              <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', color: '#1f2937' }}>
+                Settle Bill #{settleOrder.orderNumber || settleOrder.invoiceNumber}
+              </h3>
+              <p style={{ margin: '0 0 20px', fontSize: '0.85rem', color: '#6b7280' }}>
+                ₹{(settleOrder.totalAmount || settleOrder.grandTotal || 0).toFixed(2)} — Select payment method
+              </p>
+
+              {settleError && (
+                <div style={{ background: '#fee2e2', color: '#dc2626', padding: '8px 12px', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '14px' }}>
+                  {settleError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+                {['cash', 'upi', 'card'].map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => { setSettleMethod(m); setSettleError('') }}
+                    style={{
+                      flex: 1, padding: '12px 8px', borderRadius: '10px', cursor: 'pointer',
+                      fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase',
+                      border: settleMethod === m ? '2px solid #065f46' : '2px solid #e5e7eb',
+                      background: settleMethod === m ? '#ecfdf5' : 'white',
+                      color: settleMethod === m ? '#065f46' : '#374151',
+                    }}
+                  >
+                    {m === 'cash' ? '💵' : m === 'upi' ? '📱' : '💳'} {m}
+                  </button>
+                ))}
+              </div>
+
+              {settleMethod === 'upi' && (
+                <input
+                  type="text"
+                  placeholder="UTR number (optional)"
+                  value={settleUtr}
+                  onChange={(e) => setSettleUtr(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '8px',
+                    border: '1.5px solid #d1d5db', fontSize: '0.9rem', marginBottom: '16px'
+                  }}
+                />
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button
+                  onClick={() => { setShowSettleModal(false); setSettleOrder(null) }}
+                  disabled={settling}
+                  style={{
+                    flex: 1, padding: '12px', borderRadius: '8px', border: '1.5px solid #e5e7eb',
+                    background: 'white', color: '#4b5563', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!settleMethod) { setSettleError('Select a payment method'); return }
+                    setSettling(true)
+                    setSettleError('')
+                    try {
+                      const orderId = settleOrder.mongoId || settleOrder.id || settleOrder._id
+                      await counterApi.request(`/counter-order/orders/${orderId}/settle`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                          paymentMethod: settleMethod,
+                          utr: settleMethod === 'upi' ? settleUtr.trim() : null,
+                          settledBy: localStorage.getItem('counterUsername') || null,
+                        }),
+                      })
+                      setShowSettleModal(false)
+                      setSettleOrder(null)
+                      // Reload sales report + session state so the Close Billing
+                      // button unlocks as soon as the last bill is settled
+                      await loadSalesReport(selectedSalesDate)
+                    } catch (err) {
+                      setSettleError(err.message || 'Settlement failed')
+                    } finally {
+                      setSettling(false)
+                    }
+                  }}
+                  disabled={settling || !settleMethod}
+                  style={{
+                    flex: 1, padding: '12px', borderRadius: '8px', border: 'none',
+                    background: settleMethod ? '#065f46' : '#9ca3af',
+                    color: 'white', fontWeight: 700, cursor: settleMethod ? 'pointer' : 'not-allowed',
+                    opacity: settling ? 0.6 : 1
+                  }}
+                >
+                  {settling ? 'Settling...' : '✓ Settle'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {/* Cancel Order Modal */}
         {showCancelModal && selectedOrderToCancel && (
@@ -9756,6 +11103,8 @@ const MenuScreen = () => {
           </div>
         )}
 
+
+
         {/* Split Bill Modal */}
         {showSplitBillModal && (
           <div style={{
@@ -9906,6 +11255,173 @@ const MenuScreen = () => {
                 >
                   Generate Bill for Selected Items
                 </button>
+              </div>
+            </div>
+          </div>
+        )} 
+
+        {/* Non-Chargeable Modal — mirrors Complimentary modal exactly */}
+        {showNCModal && selectedOrderForNC && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            zIndex: 10000, padding: '20px'
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '16px', padding: '32px',
+              maxWidth: '500px', width: '100%', maxHeight: '90vh',
+              overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+            }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                <div style={{
+                  fontSize: '2rem', background: '#eef5f7', borderRadius: '12px',
+                  padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>🍽️</div>
+                <div>
+                  <h2 style={{ margin: '0 0 4px', color: '#1a202c', fontSize: '1.5rem' }}>
+                    Non-Chargeable Bill
+                  </h2>
+                  <p style={{ margin: 0, color: '#718096', fontSize: '0.875rem' }}>
+                    {selectedOrderForNC.orderNumber} — ₹{selectedOrderForNC.totalAmount?.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Info */}
+              <div style={{
+                background: '#eef5f7', border: '1px solid #cfe0e6', borderRadius: '8px',
+                padding: '12px', marginBottom: '24px', fontSize: '0.875rem', color: '#3f5d6b'
+              }}>
+                ℹ️ Internal consumption — will be excluded from sales revenue. Provide a reason and type.
+              </div>
+
+              {ncError && (
+                <div style={{
+                  background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px',
+                  padding: '12px', marginBottom: '16px', color: '#dc2626', fontSize: '0.875rem'
+                }}>
+                  {ncError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Type */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#4a5568', fontSize: '0.875rem' }}>
+                    Type <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {[
+                      { v: 'staff', l: 'Staff Meal' },
+                      { v: 'management', l: 'Management' },
+                      { v: 'tasting', l: 'Tasting' },
+                      { v: 'wastage', l: 'Wastage' },
+                      { v: 'other', l: 'Other' },
+                    ].map((opt) => (
+                      <button key={opt.v} type="button"
+                        onClick={() => setNcType(opt.v)}
+                        disabled={processingNC}
+                        style={{
+                          padding: '8px 14px', borderRadius: '8px', cursor: 'pointer',
+                          fontSize: '0.82rem', fontWeight: 700,
+                          border: `2px solid ${ncType === opt.v ? '#3f5d6b' : '#e5e7eb'}`,
+                          background: ncType === opt.v ? '#3f5d6b' : 'white',
+                          color: ncType === opt.v ? 'white' : '#374151',
+                        }}>
+                        {opt.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Your Name */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#4a5568', fontSize: '0.875rem' }}>
+                    Your Name <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={ncByName}
+                    onChange={(e) => setNcByName(e.target.value)}
+                    placeholder="Enter your name"
+                    disabled={processingNC}
+                    style={{
+                      width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0',
+                      borderRadius: '8px', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Reason */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#4a5568', fontSize: '0.875rem' }}>
+                    Reason <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <textarea
+                    value={ncReason}
+                    onChange={(e) => setNcReason(e.target.value)}
+                    placeholder="e.g., Kitchen staff dinner, Tasting new dish, Wastage from preparation..."
+                    disabled={processingNC}
+                    rows={3}
+                    style={{
+                      width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0',
+                      borderRadius: '8px', fontSize: '0.875rem', outline: 'none',
+                      resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#4a5568', fontSize: '0.875rem' }}>
+                    Authorization Password <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={ncPassword}
+                    onChange={(e) => setNcPassword(e.target.value)}
+                    placeholder="Enter authorization password"
+                    disabled={processingNC}
+                    style={{
+                      width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0',
+                      borderRadius: '8px', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box'
+                    }}
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#718096' }}>
+                    Contact admin if you don&apos;t have the password
+                  </p>
+                </div>
+
+                {/* Buttons */}
+                <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                  <button
+                    onClick={handleCloseNCModal}
+                    disabled={processingNC}
+                    style={{
+                      flex: 1, padding: '12px', borderRadius: '8px',
+                      border: '2px solid #e2e8f0', background: 'white',
+                      color: '#4a5568', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer'
+                    }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleNCSubmit}
+                    disabled={processingNC}
+                    style={{
+                      flex: 2, padding: '12px', borderRadius: '8px', border: 'none',
+                      background: processingNC ? '#9ca3af' : '#3f5d6b',
+                      color: 'white', fontSize: '0.875rem', fontWeight: 700,
+                      cursor: processingNC ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                    }}>
+                    {processingNC
+                      ? <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span> Processing...</>
+                      : '🍽️ Mark Non-Chargeable'
+                    }
+                  </button>
+                </div>
               </div>
             </div>
           </div>

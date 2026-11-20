@@ -73,7 +73,7 @@ const CounterOrders = () => {
       
       // Fetch both counter orders and guest orders from ViratCounter app
       const [counterResponse, staffResponse] = await Promise.all([
-        api.get("/counter-order/orders").catch(() => ({ data: { orders: [] } })),
+        api.get("/counter-order/orders?fetchAll=true").catch(() => ({ data: { orders: [] } })),
         api.get("/staff-order").catch(() => ({ data: { orders: [] } }))
       ])
       

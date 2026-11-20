@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
+import { businessDateKey } from "../services/businessDay"
 
 // NEW: Unified bill/invoice numbering system with server-side generation per category
 // Bill No = Invoice No (exactly the same number)
@@ -29,13 +30,10 @@ const getNextBillNumber = async (branchId, category) => {
     console.error('❌ Failed to get unified bill/invoice number from server:', error)
     // console.log('🔄 Falling back to localStorage method...')
     
-    // Fallback to localStorage method with category
-    const now = new Date()
-    const day = String(now.getDate()).padStart(2, '0')
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const year = String(now.getFullYear()).slice(-2)
-    const dateKey = `${day}-${month}-${year}`
-    
+    // Fallback to localStorage method with category.
+    // Business day (3 AM cutoff) — see services/businessDay.js
+    const dateKey = businessDateKey()
+
     const billCounterKey = `unified-bill-counter-${category}-${dateKey}`
     
     let billCounter = parseInt(localStorage.getItem(billCounterKey) || '0')

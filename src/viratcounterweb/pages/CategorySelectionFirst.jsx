@@ -14,20 +14,20 @@ const CategorySelectionFirst = () => {
       icon: '🍽️',
       loginPath: '/counter/login/restaurant'
     },
-    {
-      id: 'SELF_SERVICE',
-      name: 'Self Service',
-      description: 'Quick counter service',
-      icon: '🥡',
-      loginPath: '/counter/login/self-service'
-    },
-    {
-      id: 'TEMPLE_MEALS',
-      name: 'Temple Meals',
-      description: 'Special temple offerings',
-      icon: '🛕',
-      loginPath: '/counter/login/temple-meals'
-    }
+    // {
+    //   id: 'SELF_SERVICE',
+    //   name: 'Self Service',
+    //   description: 'Quick counter service',
+    //   icon: '🥡',
+    //   loginPath: '/counter/login/self-service'
+    // },
+    // {
+    //   id: 'TEMPLE_MEALS',
+    //   name: 'Temple Meals',
+    //   description: 'Special temple offerings',
+    //   icon: '🛕',
+    //   loginPath: '/counter/login/temple-meals'
+    // }
   ]
 
   const handleCategorySelect = (category) => {

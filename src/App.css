@@ -572,6 +572,10 @@ body {
 .filters-bar {
   display: flex;
   justify-content: space-between;
+  /* Keep children at their natural height. Without this, a taller sibling
+     stretches .search-container and the absolutely-centered .search-icon
+     drops below the input. */
+  align-items: center;
   margin-bottom: 24px;
   background-color: var(--bg-white);
   padding: 16px;
@@ -605,6 +609,14 @@ body {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(255, 126, 71, 0.1);
+}
+
+/* Scoped to .filters-bar so it outranks the global `.filter-buttons`
+   rule leaking out of pages/Members.css, which sets flex-wrap: wrap and
+   causes the label + select to wrap onto two lines. */
+.filters-bar .filter-buttons {
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 .filter-buttons {

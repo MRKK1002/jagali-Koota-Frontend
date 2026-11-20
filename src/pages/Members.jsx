@@ -14,15 +14,19 @@ const Members = () => {
   const [showModal, setShowModal] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentMember, setCurrentMember] = useState({
+     const [currentMember, setCurrentMember] = useState({
     name: '',
     email: '',
     password: '',
     phone: '',
+    membershipType: 'Life Member',
+    membershipId: '',
     dateOfBirth: '',
     joiningDate: new Date().toISOString().split('T')[0],
     validUntil: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
     initialWalletBalance: 0,
+    discountPercentage: 0,
+    monthlyServiceCharge: 0,
     address: {
       street: '',
       city: '',
@@ -52,6 +56,24 @@ const Members = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState('members');
 
+  // Register Member (partial) state
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registerData, setRegisterData] = useState({ name: '', phone: '', email: '', membershipType: 'Life Member', memberNumber: '', initialWalletBalance: 0 });
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [registeredResult, setRegisteredResult] = useState(null);
+
+  // Membership types list
+  const MEMBERSHIP_TYPES = [
+    'Life Member',
+    'Temporary Member',
+    'Special Temporary Member',
+    'Honorary Member',
+    'Senior Life Member',
+    'Institutional Member',
+    'Platinum Member',
+    'Affiliated Member',
+  ];
+
   // Blacklist state
   const [blEntries, setBlEntries] = useState([]);
   const [blLoading, setBlLoading] = useState(false);
@@ -79,7 +101,54 @@ const Members = () => {
     }
   };
 
-  // ─── Blacklist Functions ────────────────────────────────────────────────────
+  // ─── Register Partial Member (Admin creates, member completes in app) ───────
+  const handleRegisterPartial = async () => {
+    if (!registerData.name || !registerData.phone || !registerData.membershipType) {
+      alert('Please fill all fields: Name, Phone, and Membership Type');
+      return;
+    }
+    if (!registerData.email) {
+      alert('Please enter an email address (welcome email will be sent here)');
+      return;
+    }
+    if (!registerData.memberNumber) {
+      alert('Please enter a membership number');
+      return;
+    }
+    try {
+      setRegisterLoading(true);
+      // Build the membershipId from prefix + first letter + number
+      const prefixes = { 'Life Member': 'LM', 'Temporary Member': 'TM', 'Special Temporary Member': 'STM', 'Honorary Member': 'HM', 'Senior Life Member': 'SLM', 'Institutional Member': 'IM', 'Platinum Member': 'PM', 'Affiliated Member': 'AM' };
+      const prefix = prefixes[registerData.membershipType] || 'M';
+      const firstLetter = registerData.name.trim().charAt(0).toUpperCase();
+      const membershipId = `${prefix}${firstLetter}-${registerData.memberNumber}`;
+
+      const response = await axios.post(`${API_URL}/member/register-partial`, {
+        name: registerData.name,
+        phone: registerData.phone,
+        email: registerData.email,
+        membershipType: registerData.membershipType,
+        membershipId: membershipId,
+        initialWalletBalance: Number(registerData.initialWalletBalance) || 0,
+        sendWelcomeEmail: true,
+      });
+      setRegisteredResult(response.data.member);
+    } catch (error) {
+      console.error('Error registering member:', error);
+      alert(error.response?.data?.message || 'Error registering member');
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
+  const closeRegisterModal = () => {
+    setShowRegisterModal(false);
+    setRegisterData({ name: '', phone: '', email: '', membershipType: 'Life Member', memberNumber: '', initialWalletBalance: 0 });
+    setRegisteredResult(null);
+    fetchMembers(); // Refresh list
+  };
+
+
   const fetchBlacklist = async () => {
     try {
       setBlLoading(true);
@@ -91,7 +160,6 @@ const Members = () => {
       setBlLoading(false);
     }
   };
-
   const handleBlAdd = async () => {
     if (!blCurrent.name || !blCurrent.phone || !blCurrent.reason) {
       alert('Name, phone, and reason are required');
@@ -116,7 +184,6 @@ const Members = () => {
       setBlSaving(false);
     }
   };
-
   const handleBlRemove = async (id, name) => {
     if (!window.confirm(`Remove "${name}" from blacklist?`)) return;
     try {
@@ -126,7 +193,6 @@ const Members = () => {
       alert('Error removing entry');
     }
   };
-
   const handleBlDelete = async (id, name) => {
     if (!window.confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
     try {
@@ -136,7 +202,6 @@ const Members = () => {
       alert('Error deleting entry');
     }
   };
-
   const filteredBlEntries = blEntries.filter(entry =>
     entry.name?.toLowerCase().includes(blSearch.toLowerCase()) ||
     entry.phone?.includes(blSearch) ||
@@ -345,6 +410,8 @@ const Members = () => {
       email: '',
       password: '',
       phone: '',
+      membershipType: 'Life Member',
+      membershipId: '',
       dateOfBirth: '',
       joiningDate: new Date().toISOString().split('T')[0],
       validUntil: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
@@ -370,7 +437,9 @@ const Members = () => {
   const filteredMembers = members.filter(member =>
     member.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     member.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    member.memberNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+    member.memberNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    member.membershipId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    member.phone?.includes(searchTerm)
   );
   return (
     <div className="members-container">
@@ -378,9 +447,14 @@ const Members = () => {
         <h1>👥 Membership Management</h1>
         <div style={{ display: 'flex', gap: '12px' }}>
           {activeTab === 'members' && (
-            <button className="btn-add-member" onClick={() => setShowModal(true)}>
-              <FiUserPlus style={{ marginRight: '6px', verticalAlign: 'middle' }} /> Add New Member
-            </button>
+            <>
+              <button className="btn-add-member" style={{ background: 'linear-gradient(135deg, #6B2219, #4a1510)' }} onClick={() => setShowRegisterModal(true)}>
+                <FiUser style={{ marginRight: '6px', verticalAlign: 'middle' }} /> Register Member
+              </button>
+              <button className="btn-add-member" onClick={() => setShowModal(true)}>
+                <FiUserPlus style={{ marginRight: '6px', verticalAlign: 'middle' }} /> Add New Member
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -420,21 +494,29 @@ const Members = () => {
               {/* Top stripe with avatar + badge */}
               <div className="member-card-top">
                 <div className="member-avatar">
-                  {member.name?.charAt(0).toUpperCase()}
+                  {member.profileImage ? (
+                    <img
+                      src={member.profileImage.startsWith('http') ? member.profileImage : `${API_URL.replace('/api/v1/hotel', '')}${member.profileImage}`}
+                      alt={member.name}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                    />
+                  ) : (
+                    member.name?.charAt(0).toUpperCase()
+                  )}
                 </div>
                 <div className="member-card-top-right">
                   <span className={`status ${member.isActive ? 'active' : 'inactive'}`}>
-                    {member.isActive ? '✓ Active' : '✗ Inactive'}
+                    {member.isActive ? '✓ Active' : member.registrationStatus === 'pending' ? '⏳ Pending' : '✗ Inactive'}
                   </span>
-                  <span className="membership-badge">Member</span>
+                  <span className="membership-badge">{member.membershipType || 'Member'}</span>
                 </div>
               </div>
 
               {/* Name + contact */}
               <div className="member-info">
                 <h3>{member.name}</h3>
-                <p className="member-id"><FiCreditCard style={{ verticalAlign: 'middle', marginRight: 5 }} />{member.memberNumber}</p>
-                <p className="member-email"><FiMail style={{ verticalAlign: 'middle', marginRight: 5 }} />{member.email}</p>
+                <p className="member-id"><FiCreditCard style={{ verticalAlign: 'middle', marginRight: 5 }} />{member.membershipId || member.memberNumber}</p>
+                {member.email && <p className="member-email"><FiMail style={{ verticalAlign: 'middle', marginRight: 5 }} />{member.email}</p>}
                 <p className="member-phone"><FiPhone style={{ verticalAlign: 'middle', marginRight: 5 }} />{member.phone}</p>
               </div>
 
@@ -443,6 +525,10 @@ const Members = () => {
                 <div className="stat-chip stat-chip--wallet">
                   <span className="stat-label"><MdAccountBalanceWallet style={{ verticalAlign: 'middle', marginRight: 4 }} />Wallet</span>
                   <span className="stat-value">₹{member.walletBalance?.toFixed(2) || '0.00'}</span>
+                </div>
+                <div className="stat-chip" style={member.discountPercentage > 0 ? {borderColor: '#16a34a'} : {}}>
+                  <span className="stat-label">Discount</span>
+                  <span className="stat-value" style={member.discountPercentage > 0 ? {color: '#16a34a', fontWeight: 700} : {}}>{member.discountPercentage || 0}%</span>
                 </div>
                 <div className="stat-chip">
                   <span className="stat-label"><FiCalendar style={{ verticalAlign: 'middle', marginRight: 4 }} />Joined</span>
@@ -704,6 +790,35 @@ const Members = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="member-form">
+              {/* Membership Type & ID */}
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Membership Type *</label>
+                  <select
+                    name="membershipType"
+                    value={currentMember.membershipType || 'Life Member'}
+                    onChange={handleInputChange}
+                    required
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e5e5', borderRadius: '6px', fontSize: '14px' }}
+                  >
+                    {MEMBERSHIP_TYPES.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Membership ID *</label>
+                  <input
+                    type="text"
+                    name="membershipId"
+                    value={currentMember.membershipId || ''}
+                    onChange={handleInputChange}
+                    placeholder="e.g. LMK-001"
+                    required
+                  />
+                </div>
+              </div>
+
               <div className="form-row">
                 <div className="form-group">
                   <label>Full Name *</label>
@@ -817,6 +932,36 @@ const Members = () => {
                   </div>
                 </div>
               )}
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Discount Percentage (%)</label>
+                  <input
+                    type="number"
+                    name="discountPercentage"
+                    value={currentMember.discountPercentage || 0}
+                    onChange={handleInputChange}
+                    min="0"
+                    max="100"
+                    step="1"
+                    placeholder="0"
+                  />
+                  <small style={{color: '#666', fontSize: '11px'}}>Set 0 to use default based on membership type</small>
+                </div>
+                <div className="form-group">
+                  <label>Monthly Service Charge (₹)</label>
+                  <input
+                    type="number"
+                    name="monthlyServiceCharge"
+                    value={currentMember.monthlyServiceCharge || 0}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                  />
+                  <small style={{color: '#666', fontSize: '11px'}}>Auto-deducted from wallet on 1st of every month</small>
+                </div>
+              </div>
 
               <div className="form-section">
                 <h3>Member Photo</h3>
@@ -1108,6 +1253,224 @@ const Members = () => {
                 </table>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Register Member (Partial) Modal */}
+      {showRegisterModal && (
+        <div className="modal-overlay" onClick={closeRegisterModal}>
+          <div className="modal-content" style={{ maxWidth: '560px', borderRadius: '16px', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg, #6B2219, #4a1510)', padding: '24px 28px', position: 'relative' }}>
+              <h2 style={{ color: '#fff', margin: 0, fontSize: '20px', fontWeight: 700 }}>Register New Member</h2>
+              <p style={{ color: 'rgba(255,255,255,0.8)', margin: '6px 0 0', fontSize: '13px' }}>Create a partial entry — member completes in app</p>
+              <button style={{ position: 'absolute', top: '16px', right: '16px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: '18px' }} onClick={closeRegisterModal}>✕</button>
+            </div>
+
+            {!registeredResult ? (
+              <div style={{ padding: '28px' }}>
+                {/* Membership Type — Card Grid */}
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '10px' }}>Membership Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '20px' }}>
+                  {MEMBERSHIP_TYPES.map(type => {
+                    const isSelected = registerData.membershipType === type;
+                    const prefixes = { 'Life Member': 'LM', 'Temporary Member': 'TM', 'Special Temporary Member': 'STM', 'Honorary Member': 'HM', 'Senior Life Member': 'SLM', 'Institutional Member': 'IM', 'Platinum Member': 'PM', 'Affiliated Member': 'AM' };
+                    return (
+                      <div
+                        key={type}
+                        onClick={() => setRegisterData({ ...registerData, membershipType: type })}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '10px',
+                          border: isSelected ? '2px solid #6B2219' : '1.5px solid #e5e7eb',
+                          background: isSelected ? '#fdf2f0' : '#fff',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                        }}
+                      >
+                        <span style={{
+                          width: '36px', height: '36px', borderRadius: '8px',
+                          background: isSelected ? '#6B2219' : '#f3f4f6',
+                          color: isSelected ? '#fff' : '#6b7280',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '11px', fontWeight: 700, flexShrink: 0,
+                        }}>{prefixes[type]}</span>
+                        <span style={{ fontSize: '13px', fontWeight: isSelected ? 600 : 500, color: isSelected ? '#6B2219' : '#374151' }}>{type}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Name + Phone side by side */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  <div>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Full Name *</label>
+                    <input
+                      type="text"
+                      placeholder="Member's name"
+                      value={registerData.name}
+                      onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
+                      style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: '10px', fontSize: '14px', outline: 'none', transition: 'border 0.15s' }}
+                      onFocus={(e) => e.target.style.borderColor = '#6B2219'}
+                      onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Phone Number *</label>
+                    <input
+                      type="tel"
+                      placeholder="10-digit number"
+                      value={registerData.phone}
+                      onChange={(e) => setRegisterData({ ...registerData, phone: e.target.value })}
+                      style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: '10px', fontSize: '14px', outline: 'none', transition: 'border 0.15s' }}
+                      onFocus={(e) => e.target.style.borderColor = '#6B2219'}
+                      onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                    />
+                  </div>
+                </div>
+
+                {/* Email + Initial Balance */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  <div>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Email *</label>
+                    <input
+                      type="email"
+                      placeholder="member@email.com"
+                      value={registerData.email}
+                      onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
+                      style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: '10px', fontSize: '14px', outline: 'none', transition: 'border 0.15s' }}
+                      onFocus={(e) => e.target.style.borderColor = '#6B2219'}
+                      onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Initial Wallet Balance</label>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      min="0"
+                      value={registerData.initialWalletBalance}
+                      onChange={(e) => setRegisterData({ ...registerData, initialWalletBalance: e.target.value })}
+                      style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: '10px', fontSize: '14px', outline: 'none', transition: 'border 0.15s' }}
+                      onFocus={(e) => e.target.style.borderColor = '#6B2219'}
+                      onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                    />
+                  </div>
+                </div>
+
+                {/* Membership Number */}
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Membership Number *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 001, 002..."
+                    value={registerData.memberNumber || ''}
+                    onChange={(e) => setRegisterData({ ...registerData, memberNumber: e.target.value })}
+                    style={{ width: '180px', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: '10px', fontSize: '14px', outline: 'none', transition: 'border 0.15s' }}
+                    onFocus={(e) => e.target.style.borderColor = '#6B2219'}
+                    onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                  />
+                </div>
+
+                {/* Membership ID Preview */}
+                {registerData.name && registerData.membershipType && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #fdf2f0, #fdf2f0)',
+                    border: '1.5px solid #e8a99a',
+                    borderRadius: '12px',
+                    padding: '16px 20px',
+                    marginBottom: '24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                  }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: '#6B2219', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FiCreditCard size={20} color="#fff" />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Generated Membership ID</span>
+                      <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#6B2219', letterSpacing: '1.5px', fontFamily: 'monospace' }}>
+                        {(() => {
+                          const prefixes = { 'Life Member': 'LM', 'Temporary Member': 'TM', 'Special Temporary Member': 'STM', 'Honorary Member': 'HM', 'Senior Life Member': 'SLM', 'Institutional Member': 'IM', 'Platinum Member': 'PM', 'Affiliated Member': 'AM' };
+                          const prefix = prefixes[registerData.membershipType] || 'M';
+                          const firstLetter = registerData.name.trim().charAt(0).toUpperCase();
+                          const num = registerData.memberNumber || '___';
+                          return `${prefix}${firstLetter}-${num}`;
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', paddingTop: '4px' }}>
+                  <button
+                    type="button"
+                    onClick={closeRegisterModal}
+                    style={{ padding: '11px 24px', borderRadius: '10px', border: '1.5px solid #e5e7eb', background: '#fff', color: '#6b7280', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
+                  >Cancel</button>
+                  <button
+                    type="button"
+                    onClick={handleRegisterPartial}
+                    disabled={registerLoading}
+                    style={{
+                      padding: '11px 28px', borderRadius: '10px', border: 'none',
+                      background: registerLoading ? '#9ca3af' : 'linear-gradient(135deg, #6B2219, #4a1510)',
+                      color: '#fff', fontSize: '14px', fontWeight: 600, cursor: registerLoading ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 2px 8px rgba(107, 34, 25, 0.3)',
+                    }}
+                  >{registerLoading ? 'Registering...' : 'Register Member'}</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '32px 28px', textAlign: 'center' }}>
+                <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, #f5d5ce, #e8a99a)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                  <span style={{ fontSize: '30px' }}>✓</span>
+                </div>
+                <h3 style={{ margin: '0 0 6px', color: '#6B2219', fontSize: '18px' }}>Member Registered Successfully!</h3>
+                <p style={{ color: '#6b7280', fontSize: '13px', marginBottom: '24px' }}>
+                  Share the phone number — they'll complete registration in the app.
+                </p>
+
+                <div style={{ background: '#f9fafb', borderRadius: '12px', padding: '18px 20px', textAlign: 'left', marginBottom: '24px', border: '1px solid #f3f4f6' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Membership ID</span>
+                    <span style={{ fontWeight: 800, color: '#6B2219', fontSize: '16px', fontFamily: 'monospace', letterSpacing: '1px' }}>{registeredResult.membershipId}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Name</span>
+                    <span style={{ fontWeight: 600, color: '#1a1a1a' }}>{registeredResult.name}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Phone</span>
+                    <span style={{ fontWeight: 600, color: '#1a1a1a' }}>{registeredResult.phone}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Type</span>
+                    <span style={{ fontWeight: 600, color: '#1a1a1a' }}>{registeredResult.membershipType}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Status</span>
+                    <span style={{ fontWeight: 600, color: '#f59e0b', background: '#fffbeb', padding: '2px 10px', borderRadius: '6px', fontSize: '12px' }}>⏳ Pending</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeRegisterModal}
+                  style={{
+                    width: '100%', padding: '12px', borderRadius: '10px', border: 'none',
+                    background: 'linear-gradient(135deg, #6B2219, #4a1510)',
+                    color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(107, 34, 25, 0.3)',
+                  }}
+                >Done</button>
+              </div>
+            )}
           </div>
         </div>
       )}

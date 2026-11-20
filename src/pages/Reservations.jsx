@@ -104,6 +104,7 @@ const Reservations = () => {
 
   // State for filters
   const [searchTerm, setSearchTerm] = useState("")
+  const [activeTab, setActiveTab] = useState("upcoming") // 'upcoming' or 'completed'
   const [statusFilter, setStatusFilter] = useState("all")
   const [branchFilter, setBranchFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("")
@@ -168,7 +169,7 @@ const Reservations = () => {
     if (branches.length >= 0 && tables.length >= 0) {
       fetchReservations()
     }
-  }, [statusFilter, branchFilter, dateFilter, currentPage])
+  }, [statusFilter, branchFilter, dateFilter, currentPage, activeTab])
 
   // Handle search filtering (client-side only for search term)
   useEffect(() => {
@@ -200,7 +201,7 @@ const Reservations = () => {
 
     setFilteredReservations(filtered)
     setDisplayedReservations(filtered)
-  }, [allReservations, searchTerm, showLegacyReservations, branchFilter])
+  }, [allReservations, searchTerm, showLegacyReservations, branchFilter, activeTab])
 
   // Fetch all reservations with provided data (to avoid state timing issues)
   const fetchReservationsWithData = async (branchesData = branches, tablesData = tables) => {
@@ -404,6 +405,12 @@ const Reservations = () => {
   // Handle search filtering (client-side only for search term)
   useEffect(() => {
     let filtered = allReservations
+    // Filter by tab
+    if (activeTab === "upcoming") {
+      filtered = filtered.filter((r) => r.status !== "completed" && r.status !== "cancelled")
+    } else {
+      filtered = filtered.filter((r) => r.status === "completed")
+    }
 
     // Filter out legacy reservations if option is disabled
     if (!showLegacyReservations) {
@@ -431,7 +438,7 @@ const Reservations = () => {
 
     setFilteredReservations(filtered)
     setDisplayedReservations(filtered)
-  }, [allReservations, searchTerm, showLegacyReservations, branchFilter])
+  }, [allReservations, searchTerm, showLegacyReservations, branchFilter, activeTab])
 
   // Handle view reservation
   const handleViewReservation = (reservation) => {
@@ -444,6 +451,9 @@ const Reservations = () => {
     try {
       await api.put(`/reservation/${reservationId}`, { status: newStatus })
       setSuccessMessage(`Reservation ${newStatus} successfully`)
+      // Optimistic update: move the reservation to its new status immediately
+      setAllReservations(prev => prev.map(r => r.id === reservationId ? {...r, status: newStatus} : r))
+      // Also refetch for consistency
       fetchReservations()
       
       setTimeout(() => setSuccessMessage(""), 3000)
@@ -547,17 +557,33 @@ const Reservations = () => {
           />
         </div>
         <div className="filter-buttons">
-          <select
-            className="filter-select compact"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All Reservations</option>
-            <option value="reserved">New Reservations</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          {/* Tab buttons */}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => { setActiveTab('upcoming'); setCurrentPage(1); }}
+              style={{
+                padding: '9px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+                border: activeTab === 'upcoming' ? 'none' : '1.5px solid #ddd',
+                borderRadius: '8px',
+                background: activeTab === 'upcoming' ? '#7a1f1f' : '#fff',
+                color: activeTab === 'upcoming' ? '#fff' : '#555',
+                transition: 'all 0.2s',
+              }}>
+              Upcoming
+            </button>
+            <button
+              onClick={() => { setActiveTab('completed'); setCurrentPage(1); }}
+              style={{
+                padding: '9px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+                border: activeTab === 'completed' ? 'none' : '1.5px solid #ddd',
+                borderRadius: '8px',
+                background: activeTab === 'completed' ? '#16a34a' : '#fff',
+                color: activeTab === 'completed' ? '#fff' : '#555',
+                transition: 'all 0.2s',
+              }}>
+              Completed
+            </button>
+          </div>
           <select
             className="filter-select compact"
             value={branchFilter}
@@ -906,5 +932,4 @@ const Reservations = () => {
     </div>
   )
 }
-
 export default Reservations

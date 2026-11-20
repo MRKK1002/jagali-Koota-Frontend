@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import counterApi from "../services/counterApi"
+import { businessDateKey } from "../services/businessDay"
 import hotelViratLogo from "../../assets/logo4.jpeg"
 import { MapPin, LogOut, ChevronRight } from "lucide-react"
 
@@ -89,11 +90,8 @@ const BranchSelection = () => {
       setSeeding(true)
       try {
         const categories = ['Restaurant']
-        const now = new Date()
-        const day = String(now.getDate()).padStart(2, '0')
-        const month = String(now.getMonth() + 1).padStart(2, '0')
-        const year = String(now.getFullYear()).slice(-2)
-        const dateKey = `${day}-${month}-${year}`
+        // Business day (3 AM cutoff) — must match the generation key
+        const dateKey = businessDateKey()
         await Promise.all(categories.map(async cat => {
           try {
             const res = await counterApi.request(

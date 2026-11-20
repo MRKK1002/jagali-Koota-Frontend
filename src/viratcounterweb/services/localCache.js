@@ -12,6 +12,8 @@
  *   meta        — keyPath: key  (timestamps, branch info, etc.)
  */
 
+import { businessDateKey } from './businessDay';
+
 const DB_NAME = 'counter_cache_db';
 const DB_VERSION = 2;
 
@@ -292,11 +294,9 @@ class LocalCache {
   seedLocalCounters(branchId, counters) {
     if (!Array.isArray(counters) || counters.length === 0) return
 
-    const now = new Date()
-    const day = String(now.getDate()).padStart(2, '0')
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const year = String(now.getFullYear()).slice(-2)
-    const dateKey = `${day}-${month}-${year}`
+    // Business day (3 AM cutoff) — must match the key used when generating
+    // numbers, otherwise seeding writes to a key nobody reads.
+    const dateKey = businessDateKey()
 
     for (const c of counters) {
       // Seed bill counter for each category
@@ -387,12 +387,14 @@ class LocalCache {
   }
 
   /**
-   * Clean up stale localStorage counter keys older than today.
-   * Removes unified-bill-counter-* and kot-counter-* keys from previous days.
+   * Clean up stale localStorage counter keys from previous BUSINESS days.
+   *
+   * Must use the business-day key, not the calendar key. With a calendar key
+   * this ran at 00:05 and deleted the counter for the still-active session
+   * (whose key is the previous date), resetting numbering to 001 mid-service.
    */
   purgeStaleLocalStorageKeys() {
-    const now = new Date();
-    const todayKey = `${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getFullYear()).slice(-2)}`;
+    const todayKey = businessDateKey();
     const toDelete = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);

@@ -34,6 +34,10 @@ const KitchenDisplay = () => {
   const completedItemsRef = useRef(completedItems)
   const [newOrderFlash, setNewOrderFlash] = useState(false)
   const audioRef = useRef(null)
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(() => {
+    return localStorage.getItem("kitchenAutoPrint") !== "false" // default: ON
+  })
+  const autoPrintRef = useRef(autoPrintEnabled)
   const [notificationPermission, setNotificationPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   )
@@ -112,6 +116,62 @@ const KitchenDisplay = () => {
     }
   }
 
+  // Auto-print entire KOT when new order arrives
+  const autoPrintKOT = (kotData) => {
+    if (!autoPrintRef.current) return
+    if (!kotData || !kotData.items || kotData.items.length === 0) return
+    console.log('🖨️ Auto-printing KOT:', kotData.kotNumber || kotData.invoiceNumber)
+
+    const items = (kotData.items || []).map(function(item) {
+      var name = (item.name || '').replace(/^\d+\s+/, '').trim()
+      return '<tr><td style="font-size:14px;padding:3px 0;">' + (item.quantity || 1) + 'x</td><td style="font-size:14px;padding:3px 4px;font-weight:bold;">' + name + '</td></tr>'
+    }).join('')
+
+    var printWindow = window.open("", "_blank", "width=300,height=400")
+    if (!printWindow) { console.log('🖨️ Popup blocked — cannot auto-print'); return }
+
+    var timeStr = new Date(kotData.createdAt || Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+    var totalItems = (kotData.items || []).reduce(function(s, i) { return s + (i.quantity || 1) }, 0)
+
+    printWindow.document.write(
+      '<html><head><title>KOT</title>' +
+      '<style>' +
+      '@page { size: 80mm auto; margin: 2mm; }' +
+      '* { margin: 0; padding: 0; box-sizing: border-box; }' +
+      'body { font-family: monospace; padding: 4mm; font-size: 12px; width: 76mm; max-width: 76mm; }' +
+      '.header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 6px; margin-bottom: 8px; }' +
+      '.header h1 { font-size: 20px; margin-bottom: 2px; letter-spacing: 2px; }' +
+      '.info { margin: 4px 0; font-size: 12px; }' +
+      '.info b { display: inline-block; width: 60px; }' +
+      'table { width: 100%; border-collapse: collapse; margin: 8px 0; }' +
+      '.divider { border-top: 1px dashed #000; margin: 6px 0; }' +
+      '.footer { text-align: center; font-size: 10px; margin-top: 8px; border-top: 1px dashed #000; padding-top: 4px; }' +
+      '</style></head><body>' +
+      '<div class="header"><h1>K O T</h1>' +
+      '<div style="font-size:12px;font-weight:bold;">' + (kotData.kotNumber || kotData.invoiceNumber || '') + '</div></div>' +
+      '<div class="info"><b>Table:</b> ' + (kotData.tableNumber || 'N/A') + '</div>' +
+      '<div class="info"><b>Server:</b> ' + (kotData.serverName || 'N/A') + '</div>' +
+      '<div class="info"><b>Time:</b> ' + timeStr + '</div>' +
+      '<div class="divider"></div>' +
+      '<table>' + items + '</table>' +
+      '<div class="divider"></div>' +
+      '<div class="footer">Total Items: ' + totalItems + ' | ' + new Date().toLocaleDateString('en-IN') + '</div>' +
+      '</body></html>'
+    )
+    printWindow.document.close()
+    setTimeout(function() {
+      printWindow.print()
+      printWindow.close()
+    }, 400)
+  }
+
+  // Keep autoPrint ref in sync with state
+  useEffect(() => {
+    autoPrintRef.current = autoPrintEnabled
+    localStorage.setItem("kitchenAutoPrint", autoPrintEnabled ? "true" : "false")
+  }, [autoPrintEnabled])
+
+
   useEffect(() => {
     const socket = io(SOCKET_URL, { 
       transports: ['websocket', 'polling'],
@@ -132,12 +192,46 @@ const KitchenDisplay = () => {
       setNewOrderFlash(true)
       setTimeout(() => setNewOrderFlash(false), 5000)
       // Refresh KOT list (don't trigger ringtone again from poll)
+      // Auto-print KOT to kitchen printer
+      autoPrintKOT(data)
       fetchKOTs(false)
     })
 
     // Order updated/cancelled/completed — refresh list silently
     socket.on('order-updated', () => {
       fetchKOTs(false)
+    })
+
+    // 🔔 New reservation from Member App
+    socket.on('new-reservation', (data) => {
+      console.log('🔔 New reservation received:', data)
+      playRingtone()
+      setNewOrderFlash(true)
+      setTimeout(() => setNewOrderFlash(false), 5000)
+      // Show browser notification
+      if (Notification.permission === 'granted') {
+        new Notification('New Table Reservation', {
+          body: `${data.customerName} • Table ${data.tableNumber} • ${data.guestCount} guests • ${data.timeSlot}`,
+          icon: '/favicon.ico',
+          tag: 'new-reservation-' + Date.now(),
+        })
+      }
+    })
+
+    // 🔔 New event booking from Member App
+    socket.on('new-event-booking', (data) => {
+      console.log('🔔 New event booking received:', data)
+      playRingtone()
+      setNewOrderFlash(true)
+      setTimeout(() => setNewOrderFlash(false), 5000)
+      // Show browser notification
+      if (Notification.permission === 'granted') {
+        new Notification('New Event Booking', {
+          body: `${data.memberName} booked "${data.eventTitle}" • ${data.numberOfPeople} person(s) • ₹${data.totalAmount}`,
+          icon: '/favicon.ico',
+          tag: 'new-event-booking-' + Date.now(),
+        })
+      }
     })
 
     socket.on('disconnect', () => {
@@ -245,6 +339,9 @@ const KitchenDisplay = () => {
             playRingtone()
             setNewOrderFlash(true)
             setTimeout(() => setNewOrderFlash(false), 5000)
+            // Auto-print new KOTs detected via poll
+            var prevIds = previousKotIdsRef.current
+            visibleKOTs.filter(function(k) { return !prevIds.has(k._id) }).forEach(function(k) { autoPrintKOT(k) })
           } else {
             console.log('🔊 Poll detected new KOT but socket already alerted recently — skipping ringtone')
           }
@@ -438,6 +535,13 @@ const KitchenDisplay = () => {
             style={{ background: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "6px", padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", fontWeight: "600" }}
           >
             <FiRefreshCw size={14} /> Refresh
+          </button>
+          <button
+            onClick={() => setAutoPrintEnabled(!autoPrintEnabled)}
+            style={{ background: autoPrintEnabled ? "rgba(22,163,74,0.3)" : "rgba(255,255,255,0.1)", border: autoPrintEnabled ? "1px solid #86efac" : "1px solid rgba(255,255,255,0.3)", color: "white", borderRadius: "6px", padding: "6px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", fontWeight: "600" }}
+            title={autoPrintEnabled ? "Auto-print is ON" : "Auto-print is OFF"}
+          >
+            <FiPrinter size={14} /> {autoPrintEnabled ? "Auto Print: ON" : "Auto Print: OFF"}
           </button>
           <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>
             Updated: {lastUpdated.toLocaleTimeString()}

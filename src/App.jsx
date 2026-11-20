@@ -47,6 +47,8 @@ import TermsConditions from "./pages/TermsConditions"
 import CategoryAccess from "./pages/CategoryAccess"
 import CategoryOrders from "./pages/CategoryOrders"
 import CategorizedOrders from "./pages/CategorizedOrders"
+import SalesReports from "./pages/SalesReports"
+import ModuleAccess from "./pages/ModuleAccess"
 import KitchenDisplay from "./pages/KitchenDisplay"
 // import ReceptionistAccess from "./pages/ReceptionistAccess"
 // import ReceptionistDashboard from "./pages/ReceptionistDashboard"
@@ -64,6 +66,8 @@ import Events from "./pages/Events"
 import EventBookings from "./pages/EventBookings"
 import MemberOrders from "./pages/MemberOrders"
 import Gallery from "./pages/Gallery"
+import Sports from "./pages/Sports"
+import AffiliatedMembers from "./pages/AffiliatedMembers"
 
 // Import Counter App
 import CounterApp from "./viratcounterweb/CounterApp"
@@ -136,6 +140,7 @@ function App() {
                   {/* <Route path="orders" element={<Orders />} /> */}
                   {/* <Route path="user-orders" element={<UserOrders />} /> */}
                   <Route path="categorized-orders" element={<CategorizedOrders />} />
+                  <Route path="sales-reports" element={<SalesReports />} />
                   <Route path="products" element={<Products />} />
                   <Route path="categories" element={<Categories />} />
                   <Route path="users" element={<Users />} />
@@ -152,6 +157,8 @@ function App() {
                   <Route path="members" element={<Members />} />
                   <Route path="events" element={<Events />} />
                   <Route path="event-bookings/:eventId" element={<EventBookings />} />
+                  <Route path="sports" element={<Sports />} />
+                  <Route path="affiliated-members" element={<AffiliatedMembers />} />
                   <Route path="member-orders" element={<MemberOrders />} />
                   <Route path="gallery" element={<Gallery />} />
 
@@ -181,6 +188,7 @@ function App() {
                   {/* <Route path="room-bookings" element={<RoomBookings />} /> */}
                   {/* <Route path="room-payments" element={<RoomPayments />} /> */}
                   <Route path="category-access" element={<CategoryAccess />} />
+                  <Route path="module-access" element={<ModuleAccess />} />
                   {/* <Route path="receptionist-access" element={<ReceptionistAccess />} /> */}
                   <Route path="reservations" element={<Reservations />} />
                 </Routes>
